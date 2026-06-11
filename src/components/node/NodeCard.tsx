@@ -1,12 +1,3 @@
-这里是修正了**字段识别**与**匹配防错兜底**后的完整代码。
-
-在这次的完整版本中：
-
-1. **自动兼容多字段**：由于哪吒/Komari 面板在不同版本中前端字段可能叫 `public_remark`、`remark` 或 `internal_remark`，代码内部自动做了优先级读取 `node.public_remark ?? (node as any).remark ?? (node as any).internal_remark`，确保一定能抓到数据。
-2. **严格区分“无限”与“未配置”**：修正了之前的兜底逻辑。如果备注里没有包含“流量”关键字，底部会精准显示“未配置”（灰色），只有明确写了“流量：无限”才会显示“无限”（绿色）。
-3. **更强的正则容错**：支持换行、空格、全角半角冒号（`:` / `：`）以及等号（`=`）。
-
-```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
