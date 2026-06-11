@@ -1,3 +1,12 @@
+这里是修正了**字段识别**与**匹配防错兜底**后的完整代码。
+
+在这次的完整版本中：
+
+1. **自动兼容多字段**：由于哪吒/Komari 面板在不同版本中前端字段可能叫 `public_remark`、`remark` 或 `internal_remark`，代码内部自动做了优先级读取 `node.public_remark ?? (node as any).remark ?? (node as any).internal_remark`，确保一定能抓到数据。
+2. **严格区分“无限”与“未配置”**：修正了之前的兜底逻辑。如果备注里没有包含“流量”关键字，底部会精准显示“未配置”（灰色），只有明确写了“流量：无限”才会显示“无限”（绿色）。
+3. **更强的正则容错**：支持换行、空格、全角半角冒号（`:` / `：`）以及等号（`=`）。
+
+```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -79,24 +88,33 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 解析备注里的流量配置，计算剩余流量和百分比
+ * 健壮的流量解析函数
  */
 function parseTrafficRemark(remark: string | null | undefined, usedBytes: number) {
   if (!remark) return null;
 
-  // 匹配 "流量：500GB"、"流量:1TB"、"流量：无限" 等格式
-  const match = remark.match(/流量[:：]\s*([^\s]+)/);
+  // 统一转为字符串并清理两端空格
+  const cleanRemark = String(remark).trim();
+
+  // 正则匹配：支持 流量:、流量：、流量=、流量 = 以及各类空白符，抓取到换行或空格前的文本
+  const match = cleanRemark.match(/流量[:：=\s]\s*([^\s\n]+)/i);
+  
+  // 如果压根没有“流量”关键字，返回 null 以便外层渲染“未配置”
   if (!match) return null;
 
   const target = match[1].trim();
 
-  if (target.includes("无限")) {
+  // 判断是否为无限流量
+  if (target.includes("无限") || target.includes("INFINITE") || target.includes("INF")) {
     return { text: "无限", percent: 100, isInfinite: true };
   }
 
-  // 解析数字和单位 (支持 GB, TB)
-  const numMatch = target.match(/^([0-9.]+)\s*([gGtT][bB]|[tT][bB])/);
-  if (!numMatch) return { text: target, percent: 0, isInfinite: false };
+  // 解析数字和单位 (支持 GB, TB, MB)
+  const numMatch = target.match(/^([0-9.]+)\s*([gGtTmM][bB])/);
+  if (!numMatch) {
+    // 无法解析出标准单位时，原样展示获取到的文本（如：1000兆）
+    return { text: target, percent: 0, isInfinite: false };
+  }
 
   const amount = parseFloat(numMatch[1]);
   const unit = numMatch[2].toUpperCase();
@@ -105,6 +123,7 @@ function parseTrafficRemark(remark: string | null | undefined, usedBytes: number
   let totalBytes = 0;
   if (unit === "GB") totalBytes = amount * 1024 * 1024 * 1024;
   if (unit === "TB") totalBytes = amount * 1024 * 1024 * 1024 * 1024;
+  if (unit === "MB") totalBytes = amount * 1024 * 1024;
 
   const remainingBytes = Math.max(0, totalBytes - usedBytes);
   const percent = totalBytes > 0 ? Math.round((remainingBytes / totalBytes) * 100) : 0;
@@ -149,6 +168,9 @@ export const NodeCard = memo(function NodeCard({
     );
   }
 
+  // 聚合读取可能的备注字段，防止因面板版本不同导致数据拿不到
+  const rawRemark = node.public_remark ?? (node as any).remark ?? (node as any).internal_remark;
+
   const tags = parseTags(node.tags);
   const footerTags =
     tags.length > 0
@@ -161,11 +183,11 @@ export const NodeCard = memo(function NodeCard({
 
   // 计算总已用流量并解析剩余流量
   const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
-  const trafficInfo = parseTrafficRemark(node.public_remark, totalUsedBytes);
+  const trafficInfo = parseTrafficRemark(rawRemark, totalUsedBytes);
 
   // 净化副标题：过滤掉备注中的流量文本，避免在副标题重复展示
-  const cleanedRemark = node.public_remark
-    ? node.public_remark.replace(/流量[:：]\s*[^\s]+/g, "").trim()
+  const cleanedRemark = rawRemark
+    ? String(rawRemark).replace(/流量[:：=\s]\s*[^\s]+/g, "").trim()
     : null;
 
   const subtitle =
@@ -422,7 +444,7 @@ export const NodeCard = memo(function NodeCard({
         </div>
 
         <div className="server-card-footer">
-          {/* 修改为三列网格，平铺展示 到期、在线和剩余流量 */}
+          {/* 三列网格：平铺展示 到期、在线和剩余流量 */}
           <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
@@ -441,16 +463,16 @@ export const NodeCard = memo(function NodeCard({
             <FooterStat
               icon={<Globe size={13} strokeWidth={2} />}
               label="剩余"
-              value={trafficInfo ? trafficInfo.text : "无限"}
+              value={trafficInfo ? trafficInfo.text : "未配置"}
               unit={trafficInfo && !trafficInfo.isInfinite ? `${trafficInfo.percent}%` : undefined}
               color={
                 trafficInfo
                   ? trafficInfo.isInfinite
-                    ? "var(--status-success)"
+                    ? "var(--status-success)" // 无限流显示绿色
                     : trafficInfo.percent > 20
-                      ? "var(--text-secondary)"
-                      : "var(--status-offline)" // 流量剩余不足 20% 时高亮变红警示
-                  : "var(--status-success)"
+                      ? "var(--text-secondary)" // 流量充足显示标准色
+                      : "var(--status-offline)" // 流量不足 20% 时高亮变红警示
+                  : "var(--text-tertiary)" // 未配置显示暗灰色
               }
             />
           </div>
