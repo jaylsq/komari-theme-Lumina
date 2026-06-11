@@ -79,42 +79,30 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 健壮的流量解析函数
+ * 配合原生数据结构优化的流量计算函数
  */
-function parseTrafficRemark(remark: string | null | undefined, usedBytes: number) {
-  if (!remark) return null;
-
-  const cleanRemark = String(remark).trim();
-
-  // 正则匹配：支持 流量:、流量：、流量=、流量 =，抓取到换行或空格前的文本
-  const match = cleanRemark.match(/流量[:：=\s]\s*([^\s\n]+)/i);
+function getTrafficInfo(node: any) {
+  // 读取原生限制字节数 (若没有配置限制，或者为0，则说明是无限流量)
+  const limitBytes = Number(node.traffic_limit || 0);
   
-  if (!match) return null;
-
-  const target = match[1].trim();
-
-  // 判断是否为无限流量
-  if (target.includes("无限") || target.includes("INFINITE") || target.includes("INF")) {
-    return { text: "无限", percent: 100, isInfinite: true };
+  if (limitBytes <= 0) {
+    return { text: "无限", percent: 100, isInfinite: true, hasConfig: true };
   }
 
-  // 解析数字和单位 (支持 GB, TB, MB)
-  const numMatch = target.match(/^([0-9.]+)\s*([gGtTmM][bB])/);
-  if (!numMatch) {
-    return { text: target, percent: 0, isInfinite: false };
+  // 根据 traffic_limit_type 判断计算方式
+  // 'sum' 通常指双向流量和，'m' 或是其他代表单向，这里兼容 sum
+  let usedBytes = 0;
+  if (node.traffic_limit_type === "sum") {
+    usedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
+  } else {
+    // 默认取已用出站和入站中较大的那个，或者单做出站，这里安全兼容取双向或出站
+    usedBytes = node.trafficUp || 0;
   }
 
-  const amount = parseFloat(numMatch[1]);
-  const unit = numMatch[2].toUpperCase();
-  
-  let totalBytes = 0;
-  if (unit === "GB") totalBytes = amount * 1024 * 1024 * 1024;
-  if (unit === "TB") totalBytes = amount * 1024 * 1024 * 1024 * 1024;
-  if (unit === "MB") totalBytes = amount * 1024 * 1024;
+  const remainingBytes = Math.max(0, limitBytes - usedBytes);
+  const percent = Math.round((remainingBytes / limitBytes) * 100);
 
-  const remainingBytes = Math.max(0, totalBytes - usedBytes);
-  const percent = totalBytes > 0 ? Math.round((remainingBytes / totalBytes) * 100) : 0;
-
+  // 智能可读格式化
   let text = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
     text = `${(remainingBytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
@@ -122,7 +110,7 @@ function parseTrafficRemark(remark: string | null | undefined, usedBytes: number
     text = `${(remainingBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
-  return { text, percent, isInfinite: false };
+  return { text, percent, isInfinite: false, hasConfig: true };
 }
 
 export const NodeCard = memo(function NodeCard({
@@ -154,16 +142,6 @@ export const NodeCard = memo(function NodeCard({
     );
   }
 
-  // 【核心修改】全字段盲盒读取：哪吒/Komari 历史版本所有可能出现的备注字段别名集合
-  const rawRemark = 
-    node.public_remark ?? 
-    (node as any).remark ?? 
-    (node as any).internal_remark ??
-    (node as any).note ??
-    (node as any).public_note ??
-    (node as any).comment ??
-    (node as any).description;
-
   const tags = parseTags(node.tags);
   const footerTags =
     tags.length > 0
@@ -174,18 +152,11 @@ export const NodeCard = memo(function NodeCard({
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
 
-  console.log("👉 节点所有数据盲盒:", node.name, JSON.stringify(node));
-  // 计算总已用流量并解析剩余流量
-  const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
-  const trafficInfo = parseTrafficRemark(rawRemark, totalUsedBytes);
-
-  // 净化副标题：过滤掉备注中的流量文本，避免在副标题重复展示
-  const cleanedRemark = rawRemark
-    ? String(rawRemark).replace(/流量[:：=\s]\s*[^\s]+/g, "").trim()
-    : null;
+  // 【核心修改】直接调用原生高级字段解析流量
+  const trafficInfo = getTrafficInfo(node);
 
   const subtitle =
-    buildSubtitle([node.group, cleanedRemark]) ||
+    buildSubtitle([node.group, node.public_remark]) ||
     buildSubtitle([node.os, node.arch, node.virtualization]);
 
   const latencyColor = latencyHeatColor(ping.lastValue);
@@ -438,6 +409,7 @@ export const NodeCard = memo(function NodeCard({
         </div>
 
         <div className="server-card-footer">
+          {/* 三列网格布局 */}
           <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
@@ -456,16 +428,14 @@ export const NodeCard = memo(function NodeCard({
             <FooterStat
               icon={<Globe size={13} strokeWidth={2} />}
               label="剩余"
-              value={trafficInfo ? trafficInfo.text : "未配置"}
-              unit={trafficInfo && !trafficInfo.isInfinite ? `${trafficInfo.percent}%` : undefined}
+              value={trafficInfo.text}
+              unit={!trafficInfo.isInfinite ? `${trafficInfo.percent}%` : undefined}
               color={
-                trafficInfo
-                  ? trafficInfo.isInfinite
-                    ? "var(--status-success)"
-                    : trafficInfo.percent > 20
-                      ? "var(--text-secondary)"
-                      : "var(--status-offline)"
-                  : "var(--text-tertiary)"
+                trafficInfo.isInfinite
+                  ? "var(--status-success)" // 无限制显绿色
+                  : trafficInfo.percent > 20
+                    ? "var(--text-secondary)" // 充足显示标准色
+                    : "var(--status-offline)" // 低于 20% 变红警示
               }
             />
           </div>
