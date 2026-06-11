@@ -132,6 +132,25 @@ export const NodeCard = memo(function NodeCard({
   const hasHomepagePingBinding = ping.isAssigned;
   const isOnline = node.online === true;
   const isOffline = node.online === false;
+  // ================= 动态流量解析与计算 =================
+  let currentQuotaGB = 1000; // 兜底默认值：1000 GB
+  
+  // 从后端的公共备注中通过正则提取数字
+  if (node.public_remark) {
+    const match = node.public_remark.match(/流量[:：](\d+)\s*GB/i);
+    if (match && match[1]) {
+      currentQuotaGB = parseInt(match[1], 10);
+    }
+  }
+
+  const TOTAL_QUOTA_BYTES = currentQuotaGB * 1024 * 1024 * 1024; // 转换成 Byte
+  // 结合后端返回的已用出站和入站流量计算总已用
+  const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
+  // 计算剩余流量，防止溢出负数
+  const remainingBytes = TOTAL_QUOTA_BYTES > totalUsedBytes ? TOTAL_QUOTA_BYTES - totalUsedBytes : 0;
+  // 计算剩余百分比
+  const remainingPercent = ((remainingBytes / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
+  // ====================================================
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
   return (
@@ -247,29 +266,52 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          <div className="card-metric-section server-traffic-section">
-            <TrafficStat
-              direction="上行"
-              totalLabel="出站"
-              rate={upRate}
-              total={formatBytes(node.trafficUp)}
-              samples={trafficTrend.up}
-              live={isOnline}
-              redrawKey={resolvedAppearance}
-              color="var(--progress-cpu)"
-              icon={<ArrowUp size={15} strokeWidth={2.4} />}
-            />
-            <TrafficStat
-              direction="下行"
-              totalLabel="入站"
-              rate={downRate}
-              total={formatBytes(node.trafficDown)}
-              samples={trafficTrend.down}
-              live={isOnline}
-              redrawKey={resolvedAppearance}
-              color="var(--status-success)"
-              icon={<ArrowDown size={15} strokeWidth={2.4} />}
-            />
+          <div className="card-metric-section server-traffic-section flex flex-col gap-3">
+            {/* 原有的上下行流量统计网格 */}
+            <div className="grid grid-cols-2 gap-4">
+              <TrafficStat
+                direction="上行"
+                totalLabel="出站"
+                rate={upRate}
+                total={formatBytes(node.trafficUp)}
+                samples={trafficTrend.up}
+                live={isOnline}
+                redrawKey={resolvedAppearance}
+                color="var(--progress-cpu)"
+                icon={<ArrowUp size={15} strokeWidth={2.4} />}
+              />
+              <TrafficStat
+                direction="下行"
+                totalLabel="入站"
+                rate={downRate}
+                total={formatBytes(node.trafficDown)}
+                samples={trafficTrend.down}
+                live={isOnline}
+                redrawKey={resolvedAppearance}
+                color="var(--status-success)"
+                icon={<ArrowDown size={15} strokeWidth={2.4} />}
+              />
+            </div>
+
+            {/* 新增：动态剩余流量标签与百分比条 */}
+            <div className="remaining-traffic-block border-t border-dashed border-gray-200 dark:border-gray-800 pt-2 mt-1">
+              <div className="flex justify-between items-center text-xs mb-1">
+                <div className="flex items-center gap-1 text-gray-400 dark:text-gray-500">
+                  <Globe size={12} strokeWidth={2} />
+                  <span>剩余流量 (配额 {currentQuotaGB}G)</span>
+                </div>
+                <span className="tabular font-medium text-emerald-500 dark:text-emerald-400">
+                  {formatBytes(remainingBytes)} ({remainingPercent}%)
+                </span>
+              </div>
+              {/* 剩余率进度条 */}
+              <div className="w-full bg-gray-100 dark:bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-500 dark:bg-emerald-400 h-full transition-all duration-500"
+                  style={{ width: `${Math.max(0, Math.min(100, Number(remainingPercent)))}%` }}
+                />
+              </div>
+            </div>
           </div>
 
           <div className="card-metric-section card-metric-divided server-health-grid">
