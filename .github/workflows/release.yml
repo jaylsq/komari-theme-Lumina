@@ -4,13 +4,13 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
+  workflow_dispatch: # 允许在 GitHub 网页上手动点击运行
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # 必须显式声明写权限
 
     steps:
       - name: Checkout code
@@ -35,6 +35,7 @@ jobs:
           THEME_VERSION=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync('komari-theme.json', 'utf8')).version)")
           THEME_SHORT=$(node -e "console.log(JSON.parse(require('node:fs').readFileSync('komari-theme.json', 'utf8')).short)")
 
+          # 仅在推送标签触发时，进行强匹配校验
           if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${TAG_VERSION}" != "${PACKAGE_VERSION}" ]; then
             echo "Tag version ${TAG_VERSION} does not match package.json version ${PACKAGE_VERSION}"
             exit 1
@@ -45,13 +46,18 @@ jobs:
             exit 1
           fi
 
+          # 核心修复点 1：根据触发方式，动态决定 Release 关联的 Tag 标签名
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             RELEASE_VERSION="${TAG_VERSION}"
+            TARGET_TAG="${GITHUB_REF_NAME}"
           else
+            # 如果是手动触发，则将本地 json 文件里的版本号拼接成 v1.x.x 格式作为 Release 标签
             RELEASE_VERSION="${THEME_VERSION}"
+            TARGET_TAG="v${THEME_VERSION}"
           fi
 
           echo "version=${RELEASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "target_tag=${TARGET_TAG}" >> "${GITHUB_OUTPUT}"
           echo "zip_name=${THEME_SHORT}-v${RELEASE_VERSION}.zip" >> "${GITHUB_OUTPUT}"
 
       - name: Build theme
@@ -74,11 +80,11 @@ jobs:
           path: ${{ steps.meta.outputs.zip_name }}
           retention-days: 30
 
+      # 核心修复点 2：移除 if 条件，并改为动态获取 tag_name
       - name: Create GitHub release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.meta.outputs.target_tag }} # 动态读取标签
           name: Lumina v${{ steps.meta.outputs.version }}
           body: |
             Lumina theme release v${{ steps.meta.outputs.version }}.
