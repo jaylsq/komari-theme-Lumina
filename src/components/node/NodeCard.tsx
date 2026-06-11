@@ -174,6 +174,7 @@ export const NodeCard = memo(function NodeCard({
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
 
+  console.log("👉 节点所有数据盲盒:", node.name, JSON.stringify(node));
   // 计算总已用流量并解析剩余流量
   const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
   const trafficInfo = parseTrafficRemark(rawRemark, totalUsedBytes);
