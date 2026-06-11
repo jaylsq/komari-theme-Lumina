@@ -76,7 +76,7 @@ jobs:
 
       - name: Create GitHub release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: jaylsq/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Lumina v${{ steps.meta.outputs.version }}
