@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ExternalLink,
   Power,
+  PieChart, // 新增：引入适合表示剩余配额/流量的图标
 } from "lucide-react";
 import { useNode, useNodeTrafficTrend } from "@/hooks/useNode";
 import { usePingMini, usePingMiniBuckets } from "@/hooks/usePingMini";
@@ -39,6 +40,17 @@ import { CanvasStrip, resolveCssColor } from "./CanvasStrip";
 import { clsx } from "clsx";
 import type { PingOverviewBucket, TrafficTrendSample } from "@/types/komari";
 import type { TrafficRateDisplay } from "@/utils/format";
+
+// 💡 新增：从公共备注中提取“剩余流量”的辅助函数
+// 支持匹配如：剩余流量 50GB, 剩余: 100G, Traffic Left: 20.5GB, 剩余流量:无限 等格式
+function extractRemainingTraffic(remark: string | null | undefined): string | null {
+  if (!remark) return null;
+  
+  const regex = /(?:剩余流量|剩余|Traffic\s+Left)[:：\s]*([^\s·,，;；]+)/i;
+  const match = remark.match(regex);
+  
+  return match ? match[1].trim() : null;
+}
 
 function buildSubtitle(parts: Array<string | null | undefined>) {
   return parts
@@ -132,31 +144,10 @@ export const NodeCard = memo(function NodeCard({
   const hasHomepagePingBinding = ping.isAssigned;
   const isOnline = node.online === true;
   const isOffline = node.online === false;
-  // ================= 动态流量解析与计算（支持无限流量） =================
-  let currentQuotaGB = 1000; // 兜底默认值
-  let isUnlimited = false;   // 是否为无限流量标记
-  
-  if (node.public_remark) {
-    // 1. 先判断是不是填了“无限”或“unlimited”
-    if (/流量[:：](无限|unlimited)/i.test(node.public_remark)) {
-      isUnlimited = true;
-    } else {
-      // 2. 如果不是无限，再按原本的正则提取数字
-      const match = node.public_remark.match(/流量[:：](\d+)\s*GB/i);
-      if (match && match[1]) {
-        currentQuotaGB = parseInt(match[1], 10);
-      }
-    }
-  }
-
-  const TOTAL_QUOTA_BYTES = currentQuotaGB * 1024 * 1024 * 1024;
-  const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
-  
-  // 计算剩余流量和百分比（如果是无限流量，剩余百分比直接设为 100%）
-  const remainingBytes = TOTAL_QUOTA_BYTES > totalUsedBytes ? TOTAL_QUOTA_BYTES - totalUsedBytes : 0;
-  const remainingPercent = isUnlimited ? "100.0" : ((remainingBytes / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
-  // ===================================================================
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
+
+  // 💡 新增：调用提取函数，实时获取剩余流量
+  const remainingTraffic = extractRemainingTraffic(node.public_remark);
 
   return (
     <article
@@ -271,10 +262,10 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 流量统计区块 - 包含原上下行与新增的独立剩余流量行 */}
-          <div className="card-metric-section server-traffic-section flex flex-col gap-3">
-            {/* 第一行：原有的上行与下行并排显示 */}
-            <div className="grid grid-cols-2 gap-4">
+          {/* 🛠️ 重构流量展示部分，改为 Flex 方向向下延伸 */}
+          <div className="card-metric-section server-traffic-section flex flex-col gap-2">
+            {/* 上层：继续维持出站、入站各占 50% 宽度 */}
+            <div className="grid grid-cols-2 gap-x-4 w-full">
               <TrafficStat
                 direction="上行"
                 totalLabel="出站"
@@ -299,30 +290,21 @@ export const NodeCard = memo(function NodeCard({
               />
             </div>
 
-            {/* 第二行：独立一行的剩余流量及进度条 */}
-            <div className="remaining-traffic-row border-t border-dashed border-gray-100 dark:border-gray-800/60 pt-2 mt-0.5">
-              <div className="flex justify-between items-center text-xs mb-1.5">
-                <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
-                  <Globe size={13} strokeWidth={2} className="text-emerald-500/80" />
-                  <span>
-                    剩余流量{" "}
-                    <span className="opacity-60">
-                      ({isUnlimited ? "无限制" : `配额 ${currentQuotaGB}G`})
-                    </span>
-                  </span>
+            {/* 💡 下层：独立一整行的剩余流量显示 */}
+            {remainingTraffic && (
+              <div 
+                className="traffic-remaining-row flex items-center justify-between w-full pt-1.5 border-t border-dashed"
+                style={{ borderColor: "color-mix(in srgb, var(--text-tertiary) 20%, transparent)" }}
+              >
+                <div className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                  <PieChart size={13} strokeWidth={2} />
+                  <span>剩余流量</span>
                 </div>
-                <span className="tabular font-medium text-emerald-500 dark:text-emerald-400">
-                  {isUnlimited ? "∞ (无限)" : `${formatBytes(remainingBytes)} (${remainingPercent}%)`}
+                <span className="tabular text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>
+                  {remainingTraffic}
                 </span>
               </div>
-              {/* 剩余率可视化进度条 */}
-              <div className="w-full bg-gray-100 dark:bg-gray-800/80 h-1.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-emerald-500 dark:bg-emerald-400 h-full transition-all duration-500 rounded-full"
-                  style={{ width: `${isUnlimited ? 100 : Math.max(0, Math.min(100, Number(remainingPercent)))}%` }}
-                />
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="card-metric-section card-metric-divided server-health-grid">
