@@ -1,8 +1,3 @@
-这里是为您修改好的完整代码。
-
-我为您在顶部引入了 `Gauge` 组件中未使用的 `Globe`（用于流量图标），编写了健壮的备注流量解析逻辑（支持半角/全角冒号及空格），并在卡片底部的 `Footer` 网格中将其平铺显示，同时根据剩余流量的充足程度动态切换字体颜色。
-
-```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -649,5 +644,3 @@ function FooterStat({
     </div>
   );
 }
-
-```
