@@ -82,27 +82,22 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
  * 配合原生数据结构优化的流量计算函数
  */
 function getTrafficInfo(node: any) {
-  // 读取原生限制字节数 (若没有配置限制，或者为0，则说明是无限流量)
   const limitBytes = Number(node.traffic_limit || 0);
   
   if (limitBytes <= 0) {
     return { text: "无限", percent: 100, isInfinite: true, hasConfig: true };
   }
 
-  // 根据 traffic_limit_type 判断计算方式
-  // 'sum' 通常指双向流量和，'m' 或是其他代表单向，这里兼容 sum
   let usedBytes = 0;
   if (node.traffic_limit_type === "sum") {
     usedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
   } else {
-    // 默认取已用出站和入站中较大的那个，或者单做出站，这里安全兼容取双向或出站
     usedBytes = node.trafficUp || 0;
   }
 
   const remainingBytes = Math.max(0, limitBytes - usedBytes);
   const percent = Math.round((remainingBytes / limitBytes) * 100);
 
-  // 智能可读格式化
   let text = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
     text = `${(remainingBytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
@@ -152,7 +147,7 @@ export const NodeCard = memo(function NodeCard({
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
 
-  // 【核心修改】直接调用原生高级字段解析流量
+  // 直接调用原生高级字段解析流量
   const trafficInfo = getTrafficInfo(node);
 
   const subtitle =
@@ -408,9 +403,11 @@ export const NodeCard = memo(function NodeCard({
           </div>
         </div>
 
-        <div className="server-card-footer">
-          {/* 三列网格布局 */}
-          <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+        {/* 【核心修改】优雅的分行页脚布局 */}
+        <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          
+          {/* 第一行：到期和在线并排分列 */}
+          <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", width: "100%" }}>
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
               label="到期"
@@ -425,22 +422,46 @@ export const NodeCard = memo(function NodeCard({
               unit={uptime.unit}
               color="var(--progress-cpu)"
             />
-            <FooterStat
-              icon={<Globe size={13} strokeWidth={2} />}
-              label="剩余"
-              value={trafficInfo.text}
-              unit={!trafficInfo.isInfinite ? `${trafficInfo.percent}%` : undefined}
-              color={
-                trafficInfo.isInfinite
-                  ? "var(--status-success)" // 无限制显绿色
-                  : trafficInfo.percent > 20
-                    ? "var(--text-secondary)" // 充足显示标准色
-                    : "var(--status-offline)" // 低于 20% 变红警示
-              }
-            />
           </div>
+
+          {/* 第二行：剩余流量独占一整行，更加开阔大气 */}
+          <div 
+            className="server-card-meta" 
+            style={{ 
+              width: "100%", 
+              display: "flex", 
+              justifyContent: "space-between", 
+              alignItems: "center",
+              paddingTop: "6px",
+              borderTop: "1px dashed color-mix(in srgb, var(--text-tertiary) 15%, transparent)"
+            }}
+          >
+            <div className="server-card-meta-label" style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <Globe size={13} strokeWidth={2} />
+              <span>剩余流量</span>
+            </div>
+            <span 
+              className="server-card-meta-value tabular" 
+              style={{ 
+                color: trafficInfo.isInfinite
+                  ? "var(--status-success)"
+                  : trafficInfo.percent > 20
+                    ? "var(--text-secondary)"
+                    : "var(--status-offline)"
+              }}
+            >
+              <strong>{trafficInfo.text}</strong>
+              {!trafficInfo.isInfinite && (
+                <span className="server-card-meta-unit" style={{ marginLeft: "6px", fontSize: "0.85em", opacity: 0.8 }}>
+                  ({trafficInfo.percent}%)
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* 标签栏（如果有的话） */}
           {footerTags.length > 0 && (
-            <div className="dstatus-tags-row">
+            <div className="dstatus-tags-row" style={{ marginTop: "4px" }}>
               {footerTags.slice(0, 6).map((tag, i) => (
                 <span
                   key={`${tag.label}-${i}`}
