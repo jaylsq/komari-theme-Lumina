@@ -340,4 +340,337 @@ export const NodeCard = memo(function NodeCard({
                   ) : (
                     <span
                       className="server-health-empty"
-                      title={hasHomepagePingBinding ? "
+                      title={hasHomepagePingBinding ? "暂无有效样本" : "未配置首页 Ping"}
+                    >
+                      {hasHomepagePingBinding ? "无样本" : "未配置"}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="server-health-chart-wrap">
+                {hasHomepagePingBinding ? (
+                  <MiniBars
+                    values={ping.values}
+                    max={ping.max}
+                    lastValue={ping.lastValue ?? undefined}
+                    buckets={pingBuckets}
+                    redrawKey={resolvedAppearance}
+                    onHoverIndex={setHoveredLatencyIndex}
+                  />
+                ) : (
+                  <div className="server-health-placeholder">未配置首页 Ping</div>
+                )}
+                {latencyHoverTime && hoveredLatencyBucket && (
+                  <div className="server-health-tooltip">
+                    <div className="instance-chart-tooltip-time">{latencyHoverTime}</div>
+                    <div className="instance-chart-tooltip-row">
+                      <span className="instance-chart-tooltip-dot" style={{ background: latencyHoverColor }} />
+                      <span>延迟</span>
+                      <strong>{formatLatencyBucketSummary(hoveredLatencyBucket)}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="server-health-block">
+              <div className="server-health-head">
+                <div className="server-health-label">
+                  <Unplug size={13} strokeWidth={2} />
+                  <span>丢包率</span>
+                </div>
+                <span className="server-health-value tabular" style={{ color: lossColor }}>
+                  {ping.loss != null ? (
+                    <>
+                      {ping.loss.toFixed(1)}
+                      <span className="server-health-unit">%</span>
+                    </>
+                  ) : (
+                    <span
+                      className="server-health-empty"
+                      title={hasHomepagePingBinding ? "暂无有效样本" : "未配置首页 Ping"}
+                    >
+                      {hasHomepagePingBinding ? "无样本" : "未配置"}
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="server-health-chart-wrap">
+                {hasHomepagePingBinding ? (
+                  <QualityBars
+                    value={ping.loss}
+                    buckets={pingBuckets}
+                    redrawKey={resolvedAppearance}
+                    onHoverIndex={setHoveredLossIndex}
+                  />
+                ) : (
+                  <div className="server-health-placeholder">未配置首页 Ping</div>
+                )}
+                {lossHoverTime && hoveredLossBucket && (
+                  <div className="server-health-tooltip">
+                    <div className="instance-chart-tooltip-time">{lossHoverTime}</div>
+                    <div className="instance-chart-tooltip-row">
+                      <span className="instance-chart-tooltip-dot" style={{ background: lossHoverColor ?? lossColor }} />
+                      <span>丢包率</span>
+                      <strong>{formatLossBucketSummary(hoveredLossBucket)}</strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 下方元数据和标签区域 */}
+        <div className="server-card-footer flex flex-col gap-2.5">
+          {/* 到期和在线状态网格 */}
+          <div className="server-card-meta-grid">
+            <FooterStat
+              icon={<Calendar size={13} strokeWidth={2} />}
+              label="到期"
+              value={expire.value}
+              unit={expire.unit}
+              color={getExpireTextColor(node.expired_at)}
+            />
+            <FooterStat
+              icon={<RefreshCw size={13} strokeWidth={2} />}
+              label="在线"
+              value={uptime.value}
+              unit={uptime.unit}
+              color="var(--progress-cpu)"
+            />
+          </div>
+
+          {/* 💡 流量及百分比独占一整行展示 */}
+          {remainingTrafficInfo && (remainingTrafficInfo.value || remainingTrafficInfo.percent) && (
+            <div 
+              className="server-card-meta flex items-center justify-between w-full pt-2 border-t border-dashed"
+              style={{ borderColor: "color-mix(in srgb, var(--text-tertiary) 15%, transparent)" }}
+            >
+              <div className="server-card-meta-label">
+                <PieChart size={13} strokeWidth={2} />
+                <span>流量信息</span>
+              </div>
+              <div className="flex items-center gap-2 tabular text-[13px] font-medium">
+                {remainingTrafficInfo.value && (
+                  <span style={{ color: "var(--text-primary)" }}>{remainingTrafficInfo.value}</span>
+                )}
+                
+                {/* 状态标鉴动态控制：无限流量显示蓝灰色 ∞，有百分比显示绿色胶囊，普通数值显示配额 */}
+                {remainingTrafficInfo.isUnlimited ? (
+                  <span 
+                    className="px-1.5 py-0.5 text-[11px] rounded font-bold"
+                    style={{ 
+                      background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)", 
+                      color: "var(--text-secondary)" 
+                    }}
+                  >
+                    ∞
+                  </span>
+                ) : remainingTrafficInfo.percent ? (
+                  <span 
+                    className="px-1.5 py-0.5 text-[11px] rounded font-semibold"
+                    style={{ 
+                      background: "color-mix(in srgb, var(--status-success) 12%, transparent)", 
+                      color: "var(--status-success)" 
+                    }}
+                  >
+                    {remainingTrafficInfo.percent}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground opacity-60">配额</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 标签行 */}
+          {footerTags.length > 0 && (
+            <div className="dstatus-tags-row mt-0.5">
+              {footerTags.slice(0, 6).map((tag, i) => (
+                <span
+                  key={`${tag.label}-${i}`}
+                  data-tag={tag.color}
+                  className="dstatus-tag-chip"
+                  style={{
+                    background: "var(--tag-bg)",
+                    color: "var(--tag-fg)",
+                  }}
+                  title={tag.label}
+                >
+                  {tag.label}
+                </span>
+              ))}
+              {footerTags.length > 6 && (
+                <span className="dstatus-tag-more">+{footerTags.length - 6}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+});
+
+function TrafficStat({
+  direction,
+  totalLabel,
+  rate,
+  total,
+  samples,
+  live,
+  redrawKey,
+  color,
+  icon,
+}: {
+  direction: "下行" | "上行";
+  totalLabel: "入站" | "出站";
+  rate: TrafficRateDisplay;
+  total: string;
+  samples: TrafficTrendSample[];
+  live: boolean;
+  redrawKey: string;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="traffic-stat">
+      <div className="traffic-stat-head">
+        <div className="traffic-stat-label" style={{ color }}>
+          {icon}
+          <span>{direction}</span>
+        </div>
+        <span className="traffic-stat-value tabular" style={{ color }}>
+          {rate.value}
+          <span className="traffic-stat-unit">{rate.unit}</span>
+        </span>
+      </div>
+      <div className="traffic-stat-trend" aria-hidden>
+        <TrafficDotStrip samples={samples} color={color} redrawKey={redrawKey} />
+        <span className="traffic-stat-live" data-live={live ? "true" : "false"}>
+          <span
+            className="traffic-stat-live-dot"
+            style={{
+              background: color,
+            }}
+          />
+          <span>{live ? (rate.bitsPerSec > 0 ? "实时" : "空闲") : "离线"}</span>
+        </span>
+      </div>
+      <div className="traffic-stat-foot">
+        <div className="traffic-stat-total-label">
+          <GlobeArrow direction={totalLabel} color={color} />
+          <span>{totalLabel}</span>
+        </div>
+        <span className="tabular">{total}</span>
+      </div>
+    </div>
+  );
+}
+
+function TrafficDotStrip({
+  samples,
+  color,
+  redrawKey,
+}: {
+  samples: TrafficTrendSample[];
+  color: string;
+  redrawKey: string;
+}) {
+  return (
+    <CanvasStrip
+      className="traffic-dot-strip"
+      height={10}
+      ariaHidden
+      redrawKey={redrawKey}
+      draw={(ctx, width, height) => {
+        if (samples.length === 0) return;
+        const slotWidth = width / samples.length;
+        const styles = getComputedStyle(document.documentElement);
+        const baseColor = resolveCssColor(color, styles);
+        const inactiveColor = resolveCssColor("var(--progress-bg)", styles);
+
+        samples.forEach((sample, index) => {
+          const hasTraffic = sample.value > 0;
+          const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
+          const radius = 2 * scale;
+          const tone = hasTraffic
+            ? `color-mix(in srgb, ${baseColor} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
+            : inactiveColor;
+          const x = index * slotWidth + slotWidth / 2;
+          const y = height / 2;
+
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = tone;
+          ctx.globalAlpha = hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46;
+          ctx.fill();
+        });
+
+        ctx.globalAlpha = 1;
+      }}
+    />
+  );
+}
+
+function GlobeArrow({
+  direction,
+  color,
+}: {
+  direction: "入站" | "出站";
+  color: string;
+}) {
+  const isInbound = direction === "入站";
+  return (
+    <span
+      className="relative inline-flex items-center justify-center"
+      style={{
+        width: 18,
+        height: 18,
+        color,
+      }}
+      aria-hidden
+    >
+      <Globe size={15} strokeWidth={1.9} />
+      {isInbound ? (
+        <ArrowDown
+          size={9}
+          strokeWidth={2.4}
+          className="absolute -right-[2px] bottom-[-1px]"
+        />
+      ) : (
+        <ArrowUp
+          size={9}
+          strokeWidth={2.4}
+          className="absolute -right-[2px] bottom-[-1px]"
+        />
+      )}
+    </span>
+  );
+}
+
+function FooterStat({
+  icon,
+  label,
+  value,
+  unit,
+  color,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="server-card-meta">
+      <div className="server-card-meta-label">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <span className="server-card-meta-value tabular" style={{ color }}>
+        {value}
+        {unit && <span className="server-card-meta-unit">{unit}</span>}
+      </span>
+    </div>
+  );
+}
