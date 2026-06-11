@@ -1,3 +1,8 @@
+这里是为您修改好的完整代码。
+
+我为您在顶部引入了 `Gauge` 组件中未使用的 `Globe`（用于流量图标），编写了健壮的备注流量解析逻辑（支持半角/全角冒号及空格），并在卡片底部的 `Footer` 网格中将其平铺显示，同时根据剩余流量的充足程度动态切换字体颜色。
+
+```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -14,7 +19,6 @@ import {
   RefreshCw,
   ExternalLink,
   Power,
-  PieChart, // 用于流量信息的图标
 } from "lucide-react";
 import { useNode, useNodeTrafficTrend } from "@/hooks/useNode";
 import { usePingMini, usePingMiniBuckets } from "@/hooks/usePingMini";
@@ -40,54 +44,6 @@ import { CanvasStrip, resolveCssColor } from "./CanvasStrip";
 import { clsx } from "clsx";
 import type { PingOverviewBucket, TrafficTrendSample } from "@/types/komari";
 import type { TrafficRateDisplay } from "@/utils/format";
-
-/**
- * 💡 终极流量解析器
- * 支持格式：
- * - "流量:500GB" -> 500GB (右侧显示配额标签)
- * - "流量:无限" / "流量:Unlimited" -> 无限 (右侧自动展示 ∞ 符号)
- * - "流量:200G/500G" -> 200G / 500G 
- * - "流量:500GB 剩余45%" -> 500GB (右侧展示绿色 45% 胶囊)
- */
-function parseRemainingTraffic(remark: string | null | undefined) {
-  if (!remark) return null;
-
-  // 匹配 流量、剩余流量、剩余 等开头，后面接冒号或空格的文本区块
-  const regex = /(?:剩余流量|流量|剩余|Traffic\s+Left)[:：\s]*([^\s·,，;；]+)/i;
-  const match = remark.match(regex);
-  if (!match) return null;
-
-  let rawContent = match[1].trim();
-  let value: string | null = null;
-  let percent: string | null = null;
-  let isUnlimited = false;
-
-  // 1. 判断是否为“无限”流量的关键词
-  if (/^(无限|无限制|unlimited|inf|infinity|∞)$/i.test(rawContent)) {
-    value = "无限流量";
-    isUnlimited = true;
-  } 
-  // 2. 如果提取到的内容本身就是百分比
-  else if (/^\d+(\.\d+)?%$/.test(rawContent)) {
-    percent = rawContent;
-  } 
-  // 3. 如果包含斜杠组合（如 30G/100G）
-  else if (rawContent.includes("/")) {
-    value = rawContent.replace("/", " / ");
-  } 
-  // 4. 普通文本数值（如 500GB）
-  else {
-    value = rawContent;
-  }
-
-  // 5. 智能捞取整个备注里可能独立存在的百分比（如 "流量:500GB (45%)"）
-  const percentMatch = remark.match(/(\d+(?:\.\d+)?%)/);
-  if (percentMatch) {
-    percent = percentMatch[1];
-  }
-
-  return { value, percent, isUnlimited };
-}
 
 function buildSubtitle(parts: Array<string | null | undefined>) {
   return parts
@@ -125,6 +81,48 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
     return "无样本";
   }
   return `${bucket.loss.toFixed(1)}% ${bucket.lost}/${bucket.total}`;
+}
+
+/**
+ * 解析备注里的流量配置，计算剩余流量和百分比
+ */
+function parseTrafficRemark(remark: string | null | undefined, usedBytes: number) {
+  if (!remark) return null;
+
+  // 匹配 "流量：500GB"、"流量:1TB"、"流量：无限" 等格式
+  const match = remark.match(/流量[:：]\s*([^\s]+)/);
+  if (!match) return null;
+
+  const target = match[1].trim();
+
+  if (target.includes("无限")) {
+    return { text: "无限", percent: 100, isInfinite: true };
+  }
+
+  // 解析数字和单位 (支持 GB, TB)
+  const numMatch = target.match(/^([0-9.]+)\s*([gGtT][bB]|[tT][bB])/);
+  if (!numMatch) return { text: target, percent: 0, isInfinite: false };
+
+  const amount = parseFloat(numMatch[1]);
+  const unit = numMatch[2].toUpperCase();
+  
+  // 统一转换为字节 (Bytes)
+  let totalBytes = 0;
+  if (unit === "GB") totalBytes = amount * 1024 * 1024 * 1024;
+  if (unit === "TB") totalBytes = amount * 1024 * 1024 * 1024 * 1024;
+
+  const remainingBytes = Math.max(0, totalBytes - usedBytes);
+  const percent = totalBytes > 0 ? Math.round((remainingBytes / totalBytes) * 100) : 0;
+
+  // 格式化剩余流量显示
+  let text = "";
+  if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
+    text = `${(remainingBytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
+  } else {
+    text = `${(remainingBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+
+  return { text, percent, isInfinite: false };
 }
 
 export const NodeCard = memo(function NodeCard({
@@ -165,9 +163,20 @@ export const NodeCard = memo(function NodeCard({
         : [];
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
+
+  // 计算总已用流量并解析剩余流量
+  const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
+  const trafficInfo = parseTrafficRemark(node.public_remark, totalUsedBytes);
+
+  // 净化副标题：过滤掉备注中的流量文本，避免在副标题重复展示
+  const cleanedRemark = node.public_remark
+    ? node.public_remark.replace(/流量[:：]\s*[^\s]+/g, "").trim()
+    : null;
+
   const subtitle =
-    buildSubtitle([node.group, node.public_remark]) ||
+    buildSubtitle([node.group, cleanedRemark]) ||
     buildSubtitle([node.os, node.arch, node.virtualization]);
+
   const latencyColor = latencyHeatColor(ping.lastValue);
   const lossColor = lossHeatColor(ping.loss);
   const latencyHoverColor = hoveredLatencyBucket?.value != null
@@ -182,9 +191,6 @@ export const NodeCard = memo(function NodeCard({
   const isOnline = node.online === true;
   const isOffline = node.online === false;
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
-
-  // 💡 提取流量数据
-  const remainingTrafficInfo = parseRemainingTraffic(node.public_remark);
 
   return (
     <article
@@ -420,10 +426,9 @@ export const NodeCard = memo(function NodeCard({
           </div>
         </div>
 
-        {/* 下方元数据和标签区域 */}
-        <div className="server-card-footer flex flex-col gap-2.5">
-          {/* 到期和在线状态网格 */}
-          <div className="server-card-meta-grid">
+        <div className="server-card-footer">
+          {/* 修改为三列网格，平铺展示 到期、在线和剩余流量 */}
+          <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
               label="到期"
@@ -438,54 +443,24 @@ export const NodeCard = memo(function NodeCard({
               unit={uptime.unit}
               color="var(--progress-cpu)"
             />
+            <FooterStat
+              icon={<Globe size={13} strokeWidth={2} />}
+              label="剩余"
+              value={trafficInfo ? trafficInfo.text : "无限"}
+              unit={trafficInfo && !trafficInfo.isInfinite ? `${trafficInfo.percent}%` : undefined}
+              color={
+                trafficInfo
+                  ? trafficInfo.isInfinite
+                    ? "var(--status-success)"
+                    : trafficInfo.percent > 20
+                      ? "var(--text-secondary)"
+                      : "var(--status-offline)" // 流量剩余不足 20% 时高亮变红警示
+                  : "var(--status-success)"
+              }
+            />
           </div>
-
-          {/* 💡 流量及百分比独占一整行展示 */}
-          {remainingTrafficInfo && (remainingTrafficInfo.value || remainingTrafficInfo.percent) && (
-            <div 
-              className="server-card-meta flex items-center justify-between w-full pt-2 border-t border-dashed"
-              style={{ borderColor: "color-mix(in srgb, var(--text-tertiary) 15%, transparent)" }}
-            >
-              <div className="server-card-meta-label">
-                <PieChart size={13} strokeWidth={2} />
-                <span>流量信息</span>
-              </div>
-              <div className="flex items-center gap-2 tabular text-[13px] font-medium">
-                {remainingTrafficInfo.value && (
-                  <span style={{ color: "var(--text-primary)" }}>{remainingTrafficInfo.value}</span>
-                )}
-                
-                {/* 状态标鉴动态控制：无限流量显示蓝灰色 ∞，有百分比显示绿色胶囊，普通数值显示配额 */}
-                {remainingTrafficInfo.isUnlimited ? (
-                  <span 
-                    className="px-1.5 py-0.5 text-[11px] rounded font-bold"
-                    style={{ 
-                      background: "color-mix(in srgb, var(--text-tertiary) 12%, transparent)", 
-                      color: "var(--text-secondary)" 
-                    }}
-                  >
-                    ∞
-                  </span>
-                ) : remainingTrafficInfo.percent ? (
-                  <span 
-                    className="px-1.5 py-0.5 text-[11px] rounded font-semibold"
-                    style={{ 
-                      background: "color-mix(in srgb, var(--status-success) 12%, transparent)", 
-                      color: "var(--status-success)" 
-                    }}
-                  >
-                    {remainingTrafficInfo.percent}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground opacity-60">配额</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 标签行 */}
           {footerTags.length > 0 && (
-            <div className="dstatus-tags-row mt-0.5">
+            <div className="dstatus-tags-row">
               {footerTags.slice(0, 6).map((tag, i) => (
                 <span
                   key={`${tag.label}-${i}`}
@@ -669,8 +644,10 @@ function FooterStat({
       </div>
       <span className="server-card-meta-value tabular" style={{ color }}>
         {value}
-        {unit && <span className="server-card-meta-unit">{unit}</span>}
+        {unit && <span className="server-card-meta-unit"> {unit}</span>}
       </span>
     </div>
   );
 }
+
+```
