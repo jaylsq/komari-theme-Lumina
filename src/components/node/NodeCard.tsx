@@ -14,7 +14,7 @@ import {
   RefreshCw,
   ExternalLink,
   Power,
-  PieChart, // 新增：引入适合表示剩余配额/流量的图标
+  PieChart, // 新增：引入适合展现配额配比的图标
 } from "lucide-react";
 import { useNode, useNodeTrafficTrend } from "@/hooks/useNode";
 import { usePingMini, usePingMiniBuckets } from "@/hooks/usePingMini";
@@ -41,15 +41,47 @@ import { clsx } from "clsx";
 import type { PingOverviewBucket, TrafficTrendSample } from "@/types/komari";
 import type { TrafficRateDisplay } from "@/utils/format";
 
-// 💡 新增：从公共备注中提取“剩余流量”的辅助函数
-// 支持匹配如：剩余流量 50GB, 剩余: 100G, Traffic Left: 20.5GB, 剩余流量:无限 等格式
-function extractRemainingTraffic(remark: string | null | undefined): string | null {
+/**
+ * 💡 新增：智能解析备注中剩余流量与百分比的工具函数
+ * 支持格式举例：
+ * - "剩余流量: 50.5GB" -> { value: "50.5GB", percent: null }
+ * - "剩余: 20% (15GB)" -> { value: "15GB", percent: "20%" }
+ * - "剩余流量: 30G/100G" -> { value: "30G / 100G", percent: null }
+ * - "剩余: 45.2%" -> { value: null, percent: "45.2%" }
+ */
+function parseRemainingTraffic(remark: string | null | undefined) {
   if (!remark) return null;
-  
+
+  // 匹配核心文本区块（如：剩余流量: 50GB 45% 或 剩余: 12GB）
   const regex = /(?:剩余流量|剩余|Traffic\s+Left)[:：\s]*([^\s·,，;；]+)/i;
   const match = remark.match(regex);
-  
-  return match ? match[1].trim() : null;
+  if (!match) return null;
+
+  const rawContent = match[1].trim();
+
+  let value: string | null = null;
+  let percent: string | null = null;
+
+  // 1. 如果备注直接写的是百分比（如 45% 或 45.2%）
+  if (/^\d+(\.\d+)?%$/.test(rawContent)) {
+    percent = rawContent;
+  } 
+  // 2. 如果包含斜杠组合（如 30G/100G）
+  else if (rawContent.includes("/")) {
+    value = rawContent.replace("/", " / ");
+  } 
+  // 3. 普通文本（如 50GB）
+  else {
+    value = rawContent;
+  }
+
+  // 4. 兜底尝试从整个备注中捞取可能独立存在的百分比（如 "剩余: 50GB (45%)"）
+  const percentMatch = remark.match(/(\d+(?:\.\d+)?%)/);
+  if (percentMatch) {
+    percent = percentMatch[1];
+  }
+
+  return { value, percent };
 }
 
 function buildSubtitle(parts: Array<string | null | undefined>) {
@@ -146,8 +178,8 @@ export const NodeCard = memo(function NodeCard({
   const isOffline = node.online === false;
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
-  // 💡 新增：调用提取函数，实时获取剩余流量
-  const remainingTraffic = extractRemainingTraffic(node.public_remark);
+  // 💡 新增：提取计算
+  const remainingTrafficInfo = parseRemainingTraffic(node.public_remark);
 
   return (
     <article
@@ -262,49 +294,29 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 🛠️ 重构流量展示部分，改为 Flex 方向向下延伸 */}
-          <div className="card-metric-section server-traffic-section flex flex-col gap-2">
-            {/* 上层：继续维持出站、入站各占 50% 宽度 */}
-            <div className="grid grid-cols-2 gap-x-4 w-full">
-              <TrafficStat
-                direction="上行"
-                totalLabel="出站"
-                rate={upRate}
-                total={formatBytes(node.trafficUp)}
-                samples={trafficTrend.up}
-                live={isOnline}
-                redrawKey={resolvedAppearance}
-                color="var(--progress-cpu)"
-                icon={<ArrowUp size={15} strokeWidth={2.4} />}
-              />
-              <TrafficStat
-                direction="下行"
-                totalLabel="入站"
-                rate={downRate}
-                total={formatBytes(node.trafficDown)}
-                samples={trafficTrend.down}
-                live={isOnline}
-                redrawKey={resolvedAppearance}
-                color="var(--status-success)"
-                icon={<ArrowDown size={15} strokeWidth={2.4} />}
-              />
-            </div>
-
-            {/* 💡 下层：独立一整行的剩余流量显示 */}
-            {remainingTraffic && (
-              <div 
-                className="traffic-remaining-row flex items-center justify-between w-full pt-1.5 border-t border-dashed"
-                style={{ borderColor: "color-mix(in srgb, var(--text-tertiary) 20%, transparent)" }}
-              >
-                <div className="flex items-center gap-1.5 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                  <PieChart size={13} strokeWidth={2} />
-                  <span>剩余流量</span>
-                </div>
-                <span className="tabular text-[13px] font-medium" style={{ color: "var(--text-primary)" }}>
-                  {remainingTraffic}
-                </span>
-              </div>
-            )}
+          <div className="card-metric-section server-traffic-section">
+            <TrafficStat
+              direction="上行"
+              totalLabel="出站"
+              rate={upRate}
+              total={formatBytes(node.trafficUp)}
+              samples={trafficTrend.up}
+              live={isOnline}
+              redrawKey={resolvedAppearance}
+              color="var(--progress-cpu)"
+              icon={<ArrowUp size={15} strokeWidth={2.4} />}
+            />
+            <TrafficStat
+              direction="下行"
+              totalLabel="入站"
+              rate={downRate}
+              total={formatBytes(node.trafficDown)}
+              samples={trafficTrend.down}
+              live={isOnline}
+              redrawKey={resolvedAppearance}
+              color="var(--status-success)"
+              icon={<ArrowDown size={15} strokeWidth={2.4} />}
+            />
           </div>
 
           <div className="card-metric-section card-metric-divided server-health-grid">
@@ -403,7 +415,9 @@ export const NodeCard = memo(function NodeCard({
           </div>
         </div>
 
-        <div className="server-card-footer">
+        {/* 🛠️ 修改：重构 Footer 区域布局 */}
+        <div className="server-card-footer flex flex-col gap-2.5">
+          {/* 上半部：到期和在线状态网格 */}
           <div className="server-card-meta-grid">
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
@@ -420,8 +434,38 @@ export const NodeCard = memo(function NodeCard({
               color="var(--progress-cpu)"
             />
           </div>
+
+          {/* 💡 下半部：独占一整行的“剩余流量”及百分比展示 */}
+          {remainingTrafficInfo && (remainingTrafficInfo.value || remainingTrafficInfo.percent) && (
+            <div 
+              className="server-card-meta flex items-center justify-between w-full pt-2 border-t border-dashed"
+              style={{ borderColor: "color-mix(in srgb, var(--text-tertiary) 15%, transparent)" }}
+            >
+              <div className="server-card-meta-label">
+                <PieChart size={13} strokeWidth={2} />
+                <span>剩余流量</span>
+              </div>
+              <div className="flex items-center gap-2 tabular text-[13px] font-medium">
+                {remainingTrafficInfo.value && (
+                  <span style={{ color: "var(--text-primary)" }}>{remainingTrafficInfo.value}</span>
+                )}
+                {remainingTrafficInfo.percent && (
+                  <span 
+                    className="px-1.5 py-0.5 text-[11px] rounded font-semibold"
+                    style={{ 
+                      background: "color-mix(in srgb, var(--status-success) 12%, transparent)", 
+                      color: "var(--status-success)" 
+                    }}
+                  >
+                    {remainingTrafficInfo.percent}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {footerTags.length > 0 && (
-            <div className="dstatus-tags-row">
+            <div className="dstatus-tags-row mt-0.5">
               {footerTags.slice(0, 6).map((tag, i) => (
                 <span
                   key={`${tag.label}-${i}`}
