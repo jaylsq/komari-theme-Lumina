@@ -132,22 +132,30 @@ export const NodeCard = memo(function NodeCard({
   const hasHomepagePingBinding = ping.isAssigned;
   const isOnline = node.online === true;
   const isOffline = node.online === false;
-  // 从后端的公共备注 (public_remark) 中通过正则提取数字
+  // ================= 动态流量解析与计算（支持无限流量） =================
+  let currentQuotaGB = 1000; // 兜底默认值
+  let isUnlimited = false;   // 是否为无限流量标记
+  
   if (node.public_remark) {
-    const match = node.public_remark.match(/流量[:：](\d+)\s*GB/i);
-    if (match && match[1]) {
-      currentQuotaGB = parseInt(match[1], 10);
+    // 1. 先判断是不是填了“无限”或“unlimited”
+    if (/流量[:：](无限|unlimited)/i.test(node.public_remark)) {
+      isUnlimited = true;
+    } else {
+      // 2. 如果不是无限，再按原本的正则提取数字
+      const match = node.public_remark.match(/流量[:：](\d+)\s*GB/i);
+      if (match && match[1]) {
+        currentQuotaGB = parseInt(match[1], 10);
+      }
     }
   }
 
-  const TOTAL_QUOTA_BYTES = currentQuotaGB * 1024 * 1024 * 1024; // 转换成 Byte
-  // 结合后端返回的已用出站和入站流量计算总已用
+  const TOTAL_QUOTA_BYTES = currentQuotaGB * 1024 * 1024 * 1024;
   const totalUsedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
-  // 计算剩余流量，防止溢出负数
+  
+  // 计算剩余流量和百分比（如果是无限流量，剩余百分比直接设为 100%）
   const remainingBytes = TOTAL_QUOTA_BYTES > totalUsedBytes ? TOTAL_QUOTA_BYTES - totalUsedBytes : 0;
-  // 计算剩余百分比
-  const remainingPercent = ((remainingBytes / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
-  // ====================================================
+  const remainingPercent = isUnlimited ? "100.0" : ((remainingBytes / TOTAL_QUOTA_BYTES) * 100).toFixed(1);
+  // ===================================================================
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
   return (
@@ -296,17 +304,22 @@ export const NodeCard = memo(function NodeCard({
               <div className="flex justify-between items-center text-xs mb-1.5">
                 <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
                   <Globe size={13} strokeWidth={2} className="text-emerald-500/80" />
-                  <span>剩余流量 <span className="opacity-60">(配额 {currentQuotaGB}G)</span></span>
+                  <span>
+                    剩余流量{" "}
+                    <span className="opacity-60">
+                      ({isUnlimited ? "无限制" : `配额 ${currentQuotaGB}G`})
+                    </span>
+                  </span>
                 </div>
                 <span className="tabular font-medium text-emerald-500 dark:text-emerald-400">
-                  {formatBytes(remainingBytes)} ({remainingPercent}%)
+                  {isUnlimited ? "∞ (无限)" : `${formatBytes(remainingBytes)} (${remainingPercent}%)`}
                 </span>
               </div>
               {/* 剩余率可视化进度条 */}
               <div className="w-full bg-gray-100 dark:bg-gray-800/80 h-1.5 rounded-full overflow-hidden">
                 <div
                   className="bg-emerald-500 dark:bg-emerald-400 h-full transition-all duration-500 rounded-full"
-                  style={{ width: `${Math.max(0, Math.min(100, Number(remainingPercent)))}%` }}
+                  style={{ width: `${isUnlimited ? 100 : Math.max(0, Math.min(100, Number(remainingPercent)))}%` }}
                 />
               </div>
             </div>
