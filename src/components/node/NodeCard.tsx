@@ -1,3 +1,10 @@
+啊，怪我怪我！我上一版代码在文末用了一句注释 `// TrafficStat, TrafficDotStrip, GlobeArrow, FooterStat 组件保持不变...` 偷了个懒，结果导致你的打包工具（Vite/Webpack）找不到这些子组件了。
+
+同时，由于这些子组件被省去了，文件顶部的部分类型导入（如 `TrafficTrendSample`, `TrafficRateDisplay`, `ReactNode`）也就变成了“已导入但未使用”的报错。
+
+这里是**完全没有省略、可以直接复制粘贴替换**的完整代码，已经修复了所有的编译错误：
+
+```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -488,3 +495,169 @@ export const NodeCard = memo(function NodeCard({
     </article>
   );
 });
+
+function TrafficStat({
+  direction,
+  totalLabel,
+  rate,
+  total,
+  samples,
+  live,
+  redrawKey,
+  color,
+  icon,
+}: {
+  direction: "下行" | "上行";
+  totalLabel: "入站" | "出站";
+  rate: TrafficRateDisplay;
+  total: string;
+  samples: TrafficTrendSample[];
+  live: boolean;
+  redrawKey: string;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="traffic-stat">
+      <div className="traffic-stat-head">
+        <div className="traffic-stat-label" style={{ color }}>
+          {icon}
+          <span>{direction}</span>
+        </div>
+        <span className="traffic-stat-value tabular" style={{ color }}>
+          {rate.value}
+          <span className="traffic-stat-unit">{rate.unit}</span>
+        </span>
+      </div>
+      <div className="traffic-stat-trend" aria-hidden>
+        <TrafficDotStrip samples={samples} color={color} redrawKey={redrawKey} />
+        <span className="traffic-stat-live" data-live={live ? "true" : "false"}>
+          <span
+            className="traffic-stat-live-dot"
+            style={{
+              background: color,
+            }}
+          />
+          <span>{live ? (rate.bitsPerSec > 0 ? "实时" : "空闲") : "离线"}</span>
+        </span>
+      </div>
+      <div className="traffic-stat-foot">
+        <div className="traffic-stat-total-label">
+          <GlobeArrow direction={totalLabel} color={color} />
+          <span>{totalLabel}</span>
+        </div>
+        <span className="tabular">{total}</span>
+      </div>
+    </div>
+  );
+}
+
+function TrafficDotStrip({
+  samples,
+  color,
+  redrawKey,
+}: {
+  samples: TrafficTrendSample[];
+  color: string;
+  redrawKey: string;
+}) {
+  return (
+    <CanvasStrip
+      className="traffic-dot-strip"
+      height={10}
+      ariaHidden
+      redrawKey={redrawKey}
+      draw={(ctx, width, height) => {
+        if (samples.length === 0) return;
+        const slotWidth = width / samples.length;
+        const styles = getComputedStyle(document.documentElement);
+        const baseColor = resolveCssColor(color, styles);
+        const inactiveColor = resolveCssColor("var(--progress-bg)", styles);
+
+        samples.forEach((sample, index) => {
+          const hasTraffic = sample.value > 0;
+          const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
+          const radius = 2 * scale;
+          const tone = hasTraffic
+            ? `color-mix(in srgb, ${baseColor} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
+            : inactiveColor;
+          const x = index * slotWidth + slotWidth / 2;
+          const y = height / 2;
+
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = tone;
+          ctx.globalAlpha = hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46;
+          ctx.fill();
+        });
+
+        ctx.globalAlpha = 1;
+      }}
+    />
+  );
+}
+
+function GlobeArrow({
+  direction,
+  color,
+}: {
+  direction: "入站" | "出站";
+  color: string;
+}) {
+  const isInbound = direction === "入站";
+  return (
+    <span
+      className="relative inline-flex items-center justify-center"
+      style={{
+        width: 18,
+        height: 18,
+        color,
+      }}
+      aria-hidden
+    >
+      <Globe size={15} strokeWidth={1.9} />
+      {isInbound ? (
+        <ArrowDown
+          size={9}
+          strokeWidth={2.4}
+          className="absolute -right-[2px] bottom-[-1px]"
+        />
+      ) : (
+        <ArrowUp
+          size={9}
+          strokeWidth={2.4}
+          className="absolute -right-[2px] bottom-[-1px]"
+        />
+      )}
+    </span>
+  );
+}
+
+function FooterStat({
+  icon,
+  label,
+  value,
+  unit,
+  color,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  color: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="server-card-meta">
+      <div className="server-card-meta-label">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <span className="server-card-meta-value tabular" style={{ color }}>
+        {value}
+        {unit && <span className="server-card-meta-unit"> {unit}</span>}
+      </span>
+    </div>
+  );
+}
+
+```
