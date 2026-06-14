@@ -1,10 +1,3 @@
-啊，怪我怪我！我上一版代码在文末用了一句注释 `// TrafficStat, TrafficDotStrip, GlobeArrow, FooterStat 组件保持不变...` 偷了个懒，结果导致你的打包工具（Vite/Webpack）找不到这些子组件了。
-
-同时，由于这些子组件被省去了，文件顶部的部分类型导入（如 `TrafficTrendSample`, `TrafficRateDisplay`, `ReactNode`）也就变成了“已导入但未使用”的报错。
-
-这里是**完全没有省略、可以直接复制粘贴替换**的完整代码，已经修复了所有的编译错误：
-
-```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -659,5 +652,3 @@ function FooterStat({
     </div>
   );
 }
-
-```
