@@ -80,13 +80,13 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 流量数据解析函数 - 包含剩余流量与纯前端闭环的今日已用流量
+ * 流量数据解析函数 - 深度优化：优化今日已用的进度条与百分比基准
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
   const currentTotalBytes = Number(node.trafficUp || 0) + Number(node.trafficDown || 0);
   
-  // 生成今天日期的 key (形如 "node_uuid_2026-06-14")
+  // 生成今天日期的 key
   const todayStr = new Date().toISOString().split('T')[0];
   const storageKeyToday = `traffic_base_${node.uuid}_${todayStr}`;
 
@@ -96,7 +96,7 @@ function getTrafficInfo(node: any) {
     localStorage.setItem(storageKeyToday, String(currentTotalBytes));
     todayBase = String(currentTotalBytes);
     
-    // 自动清理 3 天前的缓存数据
+    // 自动清理旧缓存
     try {
       const obsoleteDate = new Date();
       obsoleteDate.setDate(obsoleteDate.getDate() - 3);
@@ -105,9 +105,16 @@ function getTrafficInfo(node: any) {
     } catch (e) {}
   }
 
-  // 2. 计算今天截至目前跑了多少流量
+  // 2. 计算今天实际跑了多少流量
   const todayBytes = Math.max(0, currentTotalBytes - Number(todayBase));
   const todayText = formatBytes(todayBytes);
+
+  // 💡 核心优化：动态计算今日已用进度条的“每日参考基准值”
+  // 如果有限额，每日基准 = 总额度 / 30天；如果是无限额，默认给一个 10 GB 的每日看板基准
+  const dailyTargetBytes = limitBytes > 0 ? limitBytes / 30 : 10 * 1024 * 1024 * 1024;
+  
+  // 计算今天已用掉每日额度的百分比（最高 100%）
+  const todayPercent = Math.min(100, Math.round((todayBytes / dailyTargetBytes) * 100));
 
   // 无限流量模式
   if (limitBytes <= 0) {
@@ -118,10 +125,11 @@ function getTrafficInfo(node: any) {
       percent: 100, 
       isInfinite: true,
       todayText,
-      todayPercent: 0 
+      todayPercent
     };
   }
 
+  // 有限流量总额度的剩余计算
   let usedBytes = 0;
   if (node.traffic_limit_type === "sum") {
     usedBytes = (node.trafficUp || 0) + (node.trafficDown || 0);
@@ -131,7 +139,6 @@ function getTrafficInfo(node: any) {
 
   const remainingBytes = Math.max(0, limitBytes - usedBytes);
   const percent = Math.round((remainingBytes / limitBytes) * 100);
-  const todayPercent = Math.min(100, Math.round((todayBytes / limitBytes) * 100));
 
   let remainingText = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
@@ -216,6 +223,11 @@ export const NodeCard = memo(function NodeCard({
     : trafficInfo.percent <= 20
       ? "var(--status-warning, #f97316)" 
       : "var(--status-success, #22c55e)";
+
+  // 💡 今日已用进度条颜色控制：用量过大（比如超过每日平均线 80%）时自动调为警告色
+  const todayBarColor = trafficInfo.todayPercent >= 80 
+    ? "var(--status-warning, #f97316)" 
+    : "var(--text-secondary, #71717a)";
 
   return (
     <article
@@ -464,7 +476,7 @@ export const NodeCard = memo(function NodeCard({
               paddingTop: "4px"
             }}
           >
-            {/* 左边：今日已用流量模块（移到了左侧） */}
+            {/* 左边：今日已用流量模块 */}
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
                 <History size={13} strokeWidth={2} />
@@ -472,9 +484,9 @@ export const NodeCard = memo(function NodeCard({
               </div>
               <MetricBar
                 icon={<></>}
-                fraction={trafficInfo.isInfinite ? 0 : trafficInfo.todayPercent / 100}
+                fraction={trafficInfo.todayPercent / 100}
                 redrawKey={resolvedAppearance}
-                paint={{ kind: "solid", color: "var(--text-secondary, #71717a)" }}
+                paint={{ kind: "solid", color: todayBarColor }}
                 label=""
                 valueText=""
               />
@@ -482,13 +494,13 @@ export const NodeCard = memo(function NodeCard({
                 <span style={{ color: "var(--text-main)", fontWeight: "500" }}>
                   {trafficInfo.todayText}
                 </span>
-                {!trafficInfo.isInfinite && (
-                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>占 {trafficInfo.todayPercent}%</span>
-                )}
+                <span style={{ color: todayBarColor, fontSize: "11px", fontWeight: "500" }}>
+                  占 {trafficInfo.todayPercent}%
+                </span>
               </div>
             </div>
 
-            {/* 右边：剩余流量模块（移到了右侧） */}
+            {/* 右边：剩余流量模块 */}
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
                 <Globe size={13} strokeWidth={2} />
@@ -614,6 +626,7 @@ function TrafficStat({
   );
 }
 
+// 趋势点绘制
 function TrafficDotStrip({
   samples,
   color,
