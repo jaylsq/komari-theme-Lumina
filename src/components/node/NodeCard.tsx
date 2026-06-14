@@ -1,3 +1,19 @@
+这里是调整后的代码。
+
+### 修改思路说明
+
+1. **重构页脚布局**：将“剩余流量（含进度条）”作为一个独立区块，放置在第一栏（“到期”和“在线”状态）的**正上方**。
+2. **引入进度条组件**：直接复用你项目中已有的 `<MetricBar />` 组件来渲染流量进度条，保持 UI 风格与上方的 CPU、内存、磁盘等指标完全一致。
+3. **自适应色彩控制**：
+* 当流量无限时，进度条满格并呈现绿色 (`--status-success`)。
+* 当剩余流量充足（>20%）时，呈现正常的资源色 (`--progress-disk` 或自定义色)。
+* 当流量紧张（≤20%）时，自动切为警告色 (`--status-offline`)。
+
+
+
+### 调整后的完整代码
+
+```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -168,6 +184,13 @@ export const NodeCard = memo(function NodeCard({
   const isOnline = node.online === true;
   const isOffline = node.online === false;
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
+
+  // 动态决定流量进度条的颜色
+  const trafficBarColor = trafficInfo.isInfinite
+    ? "var(--status-success)"
+    : trafficInfo.percent > 20
+      ? "var(--progress-disk)"
+      : "var(--status-offline)";
 
   return (
     <article
@@ -403,11 +426,41 @@ export const NodeCard = memo(function NodeCard({
           </div>
         </div>
 
-        {/* 【核心修改】优雅的分行页脚布局 */}
-        <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {/* 页脚布局 */}
+        <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           
-          {/* 第一行：到期和在线并排分列 */}
-          <div className="server-card-meta-grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", width: "100%" }}>
+          {/* 上层：剩余流量独占一整行，集成 MetricBar 进度条 */}
+          <div 
+            className="server-traffic-bar-wrapper" 
+            style={{ 
+              width: "100%",
+              paddingTop: "4px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px"
+            }}
+          >
+            <MetricBar
+              icon={<Globe size={13} strokeWidth={2} />}
+              label="剩余流量"
+              valueText={trafficInfo.text}
+              unit={!trafficInfo.isInfinite ? `(${trafficInfo.percent}%)` : undefined}
+              fraction={trafficInfo.percent / 100}
+              redrawKey={resolvedAppearance}
+              paint={{ kind: "solid", color: trafficBarColor }}
+            />
+          </div>
+
+          {/* 下层：到期和在线并排分列，与流量栏以虚线隔离 */}
+          <div 
+            className="server-card-meta-grid" 
+            style={{ 
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))", 
+              width: "100%",
+              paddingTop: "8px",
+              borderTop: "1px dashed color-mix(in srgb, var(--text-tertiary) 15%, transparent)"
+            }}
+          >
             <FooterStat
               icon={<Calendar size={13} strokeWidth={2} />}
               label="到期"
@@ -424,44 +477,9 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 第二行：剩余流量独占一整行，更加开阔大气 */}
-          <div 
-            className="server-card-meta" 
-            style={{ 
-              width: "100%", 
-              display: "flex", 
-              justifyContent: "space-between", 
-              alignItems: "center",
-              paddingTop: "6px",
-              borderTop: "1px dashed color-mix(in srgb, var(--text-tertiary) 15%, transparent)"
-            }}
-          >
-            <div className="server-card-meta-label" style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-              <Globe size={13} strokeWidth={2} />
-              <span>剩余流量</span>
-            </div>
-            <span 
-              className="server-card-meta-value tabular" 
-              style={{ 
-                color: trafficInfo.isInfinite
-                  ? "var(--status-success)"
-                  : trafficInfo.percent > 20
-                    ? "var(--text-secondary)"
-                    : "var(--status-offline)"
-              }}
-            >
-              <strong>{trafficInfo.text}</strong>
-              {!trafficInfo.isInfinite && (
-                <span className="server-card-meta-unit" style={{ marginLeft: "6px", fontSize: "0.85em", opacity: 0.8 }}>
-                  ({trafficInfo.percent}%)
-                </span>
-              )}
-            </span>
-          </div>
-
           {/* 标签栏（如果有的话） */}
           {footerTags.length > 0 && (
-            <div className="dstatus-tags-row" style={{ marginTop: "4px" }}>
+            <div className="dstatus-tags-row" style={{ marginTop: "2px" }}>
               {footerTags.slice(0, 6).map((tag, i) => (
                 <span
                   key={`${tag.label}-${i}`}
@@ -487,166 +505,6 @@ export const NodeCard = memo(function NodeCard({
   );
 });
 
-function TrafficStat({
-  direction,
-  totalLabel,
-  rate,
-  total,
-  samples,
-  live,
-  redrawKey,
-  color,
-  icon,
-}: {
-  direction: "下行" | "上行";
-  totalLabel: "入站" | "出站";
-  rate: TrafficRateDisplay;
-  total: string;
-  samples: TrafficTrendSample[];
-  live: boolean;
-  redrawKey: string;
-  color: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="traffic-stat">
-      <div className="traffic-stat-head">
-        <div className="traffic-stat-label" style={{ color }}>
-          {icon}
-          <span>{direction}</span>
-        </div>
-        <span className="traffic-stat-value tabular" style={{ color }}>
-          {rate.value}
-          <span className="traffic-stat-unit">{rate.unit}</span>
-        </span>
-      </div>
-      <div className="traffic-stat-trend" aria-hidden>
-        <TrafficDotStrip samples={samples} color={color} redrawKey={redrawKey} />
-        <span className="traffic-stat-live" data-live={live ? "true" : "false"}>
-          <span
-            className="traffic-stat-live-dot"
-            style={{
-              background: color,
-            }}
-          />
-          <span>{live ? (rate.bitsPerSec > 0 ? "实时" : "空闲") : "离线"}</span>
-        </span>
-      </div>
-      <div className="traffic-stat-foot">
-        <div className="traffic-stat-total-label">
-          <GlobeArrow direction={totalLabel} color={color} />
-          <span>{totalLabel}</span>
-        </div>
-        <span className="tabular">{total}</span>
-      </div>
-    </div>
-  );
-}
+// TrafficStat, TrafficDotStrip, GlobeArrow, FooterStat 组件保持不变...
 
-function TrafficDotStrip({
-  samples,
-  color,
-  redrawKey,
-}: {
-  samples: TrafficTrendSample[];
-  color: string;
-  redrawKey: string;
-}) {
-  return (
-    <CanvasStrip
-      className="traffic-dot-strip"
-      height={10}
-      ariaHidden
-      redrawKey={redrawKey}
-      draw={(ctx, width, height) => {
-        if (samples.length === 0) return;
-        const slotWidth = width / samples.length;
-        const styles = getComputedStyle(document.documentElement);
-        const baseColor = resolveCssColor(color, styles);
-        const inactiveColor = resolveCssColor("var(--progress-bg)", styles);
-
-        samples.forEach((sample, index) => {
-          const hasTraffic = sample.value > 0;
-          const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
-          const radius = 2 * scale;
-          const tone = hasTraffic
-            ? `color-mix(in srgb, ${baseColor} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
-            : inactiveColor;
-          const x = index * slotWidth + slotWidth / 2;
-          const y = height / 2;
-
-          ctx.beginPath();
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          ctx.fillStyle = tone;
-          ctx.globalAlpha = hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46;
-          ctx.fill();
-        });
-
-        ctx.globalAlpha = 1;
-      }}
-    />
-  );
-}
-
-function GlobeArrow({
-  direction,
-  color,
-}: {
-  direction: "入站" | "出站";
-  color: string;
-}) {
-  const isInbound = direction === "入站";
-  return (
-    <span
-      className="relative inline-flex items-center justify-center"
-      style={{
-        width: 18,
-        height: 18,
-        color,
-      }}
-      aria-hidden
-    >
-      <Globe size={15} strokeWidth={1.9} />
-      {isInbound ? (
-        <ArrowDown
-          size={9}
-          strokeWidth={2.4}
-          className="absolute -right-[2px] bottom-[-1px]"
-        />
-      ) : (
-        <ArrowUp
-          size={9}
-          strokeWidth={2.4}
-          className="absolute -right-[2px] bottom-[-1px]"
-        />
-      )}
-    </span>
-  );
-}
-
-function FooterStat({
-  icon,
-  label,
-  value,
-  unit,
-  color,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  color: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="server-card-meta">
-      <div className="server-card-meta-label">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <span className="server-card-meta-value tabular" style={{ color }}>
-        {value}
-        {unit && <span className="server-card-meta-unit"> {unit}</span>}
-      </span>
-    </div>
-  );
-}
+```
