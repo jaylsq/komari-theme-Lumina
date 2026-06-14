@@ -80,7 +80,7 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 流量数据解析函数 - 深度优化：优化今日已用的进度条与百分比基准
+ * 流量数据解析函数
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
@@ -109,8 +109,7 @@ function getTrafficInfo(node: any) {
   const todayBytes = Math.max(0, currentTotalBytes - Number(todayBase));
   const todayText = formatBytes(todayBytes);
 
-  // 💡 核心优化：动态计算今日已用进度条的“每日参考基准值”
-  // 如果有限额，每日基准 = 总额度 / 30天；如果是无限额，默认给一个 10 GB 的每日看板基准
+  // 动态计算今日已用进度条的“每日参考基准值”
   const dailyTargetBytes = limitBytes > 0 ? limitBytes / 30 : 10 * 1024 * 1024 * 1024;
   
   // 计算今天已用掉每日额度的百分比（最高 100%）
@@ -224,10 +223,10 @@ export const NodeCard = memo(function NodeCard({
       ? "var(--status-warning, #f97316)" 
       : "var(--status-success, #22c55e)";
 
-  // 💡 今日已用进度条颜色控制：用量过大（比如超过每日平均线 80%）时自动调为警告色
+  // 💡 优化点：今日已用进度条颜色。正常状态为蓝色（复用系统的 --progress-cpu 颜色），超过 80% 变为警告色（橘黄色）
   const todayBarColor = trafficInfo.todayPercent >= 80 
     ? "var(--status-warning, #f97316)" 
-    : "var(--text-secondary, #71717a)";
+    : "var(--progress-cpu, #3b82f6)";
 
   return (
     <article
@@ -408,7 +407,7 @@ export const NodeCard = memo(function NodeCard({
                     <div className="instance-chart-tooltip-row">
                       <span className="instance-chart-tooltip-dot" style={{ background: latencyHoverColor }} />
                       <span>延迟</span>
-                      <strong>{formatLatencyBucketSummary(hoveredLatencyBucket)}</strong>
+                      shape <strong>{formatLatencyBucketSummary(hoveredLatencyBucket)}</strong>
                     </div>
                   </div>
                 )}
@@ -494,7 +493,7 @@ export const NodeCard = memo(function NodeCard({
                 <span style={{ color: "var(--text-main)", fontWeight: "500" }}>
                   {trafficInfo.todayText}
                 </span>
-                <span style={{ color: todayBarColor, fontSize: "11px", fontWeight: "500" }}>
+                <span style={{ color: todayBarColor, fontSize: "11px", fontWeight: "600" }}>
                   占 {trafficInfo.todayPercent}%
                 </span>
               </div>
@@ -626,7 +625,6 @@ function TrafficStat({
   );
 }
 
-// 趋势点绘制
 function TrafficDotStrip({
   samples,
   color,
@@ -676,7 +674,6 @@ function TrafficDotStrip({
   );
 }
 
-// 底部单项小组件
 function FooterStat({
   icon,
   label,
