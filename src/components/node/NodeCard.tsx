@@ -79,7 +79,7 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 严格按照图片模式优化的流量数据解析函数
+ * 流量数据解析函数
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
@@ -89,7 +89,7 @@ function getTrafficInfo(node: any) {
     return { 
       valueText: "无限", 
       unit: undefined, 
-      detailText: undefined, // 图片中无限流量上方没有“还剩xxx”的文本
+      detailText: undefined, 
       percent: 100, 
       isInfinite: true 
     };
@@ -112,7 +112,6 @@ function getTrafficInfo(node: any) {
     remainingText = `${(remainingBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
-  // 有限流量模式：大字显示百分比数字，单位显示 %，辅助详情显示“还剩 x.x GB”
   return { 
     valueText: String(percent), 
     unit: "%", 
@@ -183,12 +182,13 @@ export const NodeCard = memo(function NodeCard({
   const isOffline = node.online === false;
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
-  // 动态决定流量进度条的颜色
+  // 核心逻辑修改：动态决定流量进度条颜色
+  // 如果是无限流量，固定为绿色；有限流量下，百分比 <= 20% 呈现橙色，其余呈现绿色
   const trafficBarColor = trafficInfo.isInfinite
-    ? "var(--status-success)"
-    : trafficInfo.percent > 20
-      ? "var(--progress-disk)"
-      : "var(--status-offline)";
+    ? "var(--status-success, #22c55e)"
+    : trafficInfo.percent <= 20
+      ? "var(--status-warning, #f97316)" 
+      : "var(--status-success, #22c55e)";
 
   return (
     <article
@@ -258,6 +258,7 @@ export const NodeCard = memo(function NodeCard({
         </header>
 
         <div className="server-card-stack">
+          {/* 系统指标 */}
           <div className="card-metric-section server-metric-grid">
             <MetricBar
               icon={<Cpu size={13} strokeWidth={2} />}
@@ -303,6 +304,7 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
+          {/* 实时网络速率 */}
           <div className="card-metric-section server-traffic-section">
             <TrafficStat
               direction="上行"
@@ -328,6 +330,7 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
+          {/* 延迟与丢包率 */}
           <div className="card-metric-section card-metric-divided server-health-grid">
             <div className="server-health-block">
               <div className="server-health-head">
@@ -427,7 +430,7 @@ export const NodeCard = memo(function NodeCard({
         {/* 页脚布局 */}
         <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           
-          {/* 上层：剩余流量独占一整行，集成 MetricBar 进度条并完全匹配图片展示机制 */}
+          {/* 上层：剩余流量独占一整行，集成进度条，完美控制变色 */}
           <div 
             className="server-traffic-bar-wrapper" 
             style={{ 
@@ -450,10 +453,11 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 下层：到期和在线并排分列，与流量栏以虚线隔离 */}
+          {/* 下层：到期和在线并排分列，由虚线与上方的流量独立开 */}
           <div 
             className="server-card-meta-grid" 
             style={{ 
+              display: "grid",
               gridTemplateColumns: "repeat(2, minmax(0, 1fr))", 
               width: "100%",
               paddingTop: "8px",
@@ -476,7 +480,7 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 标签栏（如果有的话） */}
+          {/* 标签 chip */}
           {footerTags.length > 0 && (
             <div className="dstatus-tags-row" style={{ marginTop: "2px" }}>
               {footerTags.slice(0, 6).map((tag, i) => (
@@ -579,23 +583,31 @@ function TrafficDotStrip({
         if (samples.length === 0) return;
         const slotWidth = width / samples.length;
         const styles = getComputedStyle(document.documentElement);
+        
+        // 核心修复：在这里解析出真正的 hex/rgb 颜色值字符串，规避高级原生 CSS 语义在 Canvas 内失效的问题
         const baseColor = resolveCssColor(color, styles);
         const inactiveColor = resolveCssColor("var(--progress-bg)", styles);
 
+        // 如果变量是 hex (如 #22c55e)，我们需要一个简单的 rgba 包装器用于 Canvas alpha
+        // 这里采用最稳定的 ctx.globalAlpha 控制透明度方案，代替在字符串中写 color-mix
         samples.forEach((sample, index) => {
           const hasTraffic = sample.value > 0;
-          const scale = hasTraffic ? 0.72 + sample.level * 0.82 : 0.46;
-          const radius = 2 * scale;
-          const tone = hasTraffic
-            ? `color-mix(in srgb, ${baseColor} ${Math.round(68 + sample.level * 20)}%, white ${Math.round(32 - sample.level * 20)}%)`
-            : inactiveColor;
-          const x = index * slotWidth + slotWidth / 2;
-          const y = height / 2;
+          const slotX = index * slotWidth + slotWidth / 2;
+          const slotY = height / 2;
+          const radius = 2 * (hasTraffic ? 0.72 + sample.level * 0.82 : 0.46);
 
           ctx.beginPath();
-          ctx.arc(x, y, radius, 0, Math.PI * 2);
-          ctx.fillStyle = tone;
-          ctx.globalAlpha = hasTraffic ? Math.min(1, sample.opacity + 0.05) : 0.46;
+          ctx.arc(slotX, slotY, radius, 0, Math.PI * 2);
+          
+          if (hasTraffic) {
+            ctx.fillStyle = baseColor;
+            // 叠加 level 和 基础不透明度
+            ctx.globalAlpha = Math.min(1, (sample.opacity || 0.5) + sample.level * 0.3);
+          } else {
+            ctx.fillStyle = inactiveColor;
+            ctx.globalAlpha = 0.35;
+          }
+          
           ctx.fill();
         });
 
