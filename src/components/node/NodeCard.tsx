@@ -1,3 +1,4 @@
+
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -309,7 +310,7 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 实时网速速率区（仅包含方向速度与点阵趋势图，剔除了底部的累计数值） */}
+          {/* 实时网速速率区 */}
           <div className="card-metric-section server-traffic-section">
             <TrafficStat
               direction="上行"
@@ -449,6 +450,7 @@ export const NodeCard = memo(function NodeCard({
                 <span style={{ fontSize: "12px", fontWeight: 500 }}>剩余流量</span>
               </div>
               <MetricBar
+                icon={<></>}
                 fraction={trafficInfo.isInfinite ? 1 : trafficInfo.percent / 100}
                 redrawKey={resolvedAppearance}
                 paint={{ kind: "solid", color: trafficBarColor }}
@@ -473,6 +475,7 @@ export const NodeCard = memo(function NodeCard({
                 <span style={{ fontSize: "12px", fontWeight: 500 }}>昨日已用</span>
               </div>
               <MetricBar
+                icon={<></>}
                 fraction={trafficInfo.isInfinite ? 0 : trafficInfo.yesterdayPercent / 100}
                 redrawKey={resolvedAppearance}
                 paint={{ kind: "solid", color: "var(--text-secondary, #71717a)" }}
