@@ -80,23 +80,45 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 流量数据解析函数 - 包含剩余流量与昨日已用流量
+ * 流量数据解析函数 - 包含剩余流量与纯前端闭环的今日已用流量
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
-  const yesterdayBytes = Number(node.trafficYesterday || 0); 
+  const currentTotalBytes = Number(node.trafficUp || 0) + Number(node.trafficDown || 0);
   
-  const yesterdayText = formatBytes(yesterdayBytes);
+  // 生成今天日期的 key (形如 "node_uuid_2026-06-14")
+  const todayStr = new Date().toISOString().split('T')[0];
+  const storageKeyToday = `traffic_base_${node.uuid}_${todayStr}`;
 
+  // 1. 获取或锁定今天凌晨第一次打开网页时的流量基准
+  let todayBase = localStorage.getItem(storageKeyToday);
+  if (!todayBase) {
+    localStorage.setItem(storageKeyToday, String(currentTotalBytes));
+    todayBase = String(currentTotalBytes);
+    
+    // 自动清理 3 天前的缓存数据
+    try {
+      const obsoleteDate = new Date();
+      obsoleteDate.setDate(obsoleteDate.getDate() - 3);
+      const oldKey = `traffic_base_${node.uuid}_${obsoleteDate.toISOString().split('T')[0]}`;
+      localStorage.removeItem(oldKey);
+    } catch (e) {}
+  }
+
+  // 2. 计算今天截至目前跑了多少流量
+  const todayBytes = Math.max(0, currentTotalBytes - Number(todayBase));
+  const todayText = formatBytes(todayBytes);
+
+  // 无限流量模式
   if (limitBytes <= 0) {
     return { 
       valueText: "无限", 
       unit: undefined, 
-      detailText: undefined, 
+      detailText: "无上限", 
       percent: 100, 
       isInfinite: true,
-      yesterdayText,
-      yesterdayPercent: 0 
+      todayText,
+      todayPercent: 0 
     };
   }
 
@@ -109,7 +131,7 @@ function getTrafficInfo(node: any) {
 
   const remainingBytes = Math.max(0, limitBytes - usedBytes);
   const percent = Math.round((remainingBytes / limitBytes) * 100);
-  const yesterdayPercent = Math.min(100, Math.round((yesterdayBytes / limitBytes) * 100));
+  const todayPercent = Math.min(100, Math.round((todayBytes / limitBytes) * 100));
 
   let remainingText = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
@@ -124,8 +146,8 @@ function getTrafficInfo(node: any) {
     detailText: `还剩 ${remainingText}`, 
     percent: percent, 
     isInfinite: false,
-    yesterdayText,
-    yesterdayPercent
+    todayText,
+    todayPercent
   };
 }
 
@@ -442,7 +464,31 @@ export const NodeCard = memo(function NodeCard({
               paddingTop: "4px"
             }}
           >
-            {/* 左边：剩余流量模块（数值居下） */}
+            {/* 左边：今日已用流量模块（移到了左侧） */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <History size={13} strokeWidth={2} />
+                <span style={{ fontSize: "12px", fontWeight: 500 }}>今日已用</span>
+              </div>
+              <MetricBar
+                icon={<></>}
+                fraction={trafficInfo.isInfinite ? 0 : trafficInfo.todayPercent / 100}
+                redrawKey={resolvedAppearance}
+                paint={{ kind: "solid", color: "var(--text-secondary, #71717a)" }}
+                label=""
+                valueText=""
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px", marginTop: "1px" }}>
+                <span style={{ color: "var(--text-main)", fontWeight: "500" }}>
+                  {trafficInfo.todayText}
+                </span>
+                {!trafficInfo.isInfinite && (
+                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>占 {trafficInfo.todayPercent}%</span>
+                )}
+              </div>
+            </div>
+
+            {/* 右边：剩余流量模块（移到了右侧） */}
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
                 <Globe size={13} strokeWidth={2} />
@@ -457,37 +503,13 @@ export const NodeCard = memo(function NodeCard({
                 valueText=""
               />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px", marginTop: "1px" }}>
+                <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>
+                  {trafficInfo.detailText}
+                </span>
                 <span style={{ color: trafficBarColor, fontWeight: "600", fontSize: "13px" }}>
                   {trafficInfo.valueText}
                   {trafficInfo.unit && <span style={{ fontSize: "10px", marginLeft: "1px", fontWeight: "400" }}>{trafficInfo.unit}</span>}
                 </span>
-                {trafficInfo.detailText && (
-                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>{trafficInfo.detailText}</span>
-                )}
-              </div>
-            </div>
-
-            {/* 右边：昨日已用流量模块 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
-                <History size={13} strokeWidth={2} />
-                <span style={{ fontSize: "12px", fontWeight: 500 }}>昨日已用</span>
-              </div>
-              <MetricBar
-                icon={<></>}
-                fraction={trafficInfo.isInfinite ? 0 : trafficInfo.yesterdayPercent / 100}
-                redrawKey={resolvedAppearance}
-                paint={{ kind: "solid", color: "var(--text-secondary, #71717a)" }}
-                label=""
-                valueText=""
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px", marginTop: "1px" }}>
-                <span style={{ color: "var(--text-main)", fontWeight: "500" }}>
-                  {trafficInfo.yesterdayText}
-                </span>
-                {!trafficInfo.isInfinite && (
-                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>占 {trafficInfo.yesterdayPercent}%</span>
-                )}
               </div>
             </div>
           </div>
