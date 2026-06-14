@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ExternalLink,
   Power,
+  History,
 } from "lucide-react";
 import { useNode, useNodeTrafficTrend } from "@/hooks/useNode";
 import { usePingMini, usePingMiniBuckets } from "@/hooks/usePingMini";
@@ -79,19 +80,23 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 流量数据解析函数
+ * 流量数据解析函数 - 包含剩余流量与昨日已用流量
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
+  const yesterdayBytes = Number(node.trafficYesterday || 0); 
   
-  // 无限流量模式
+  const yesterdayText = formatBytes(yesterdayBytes);
+
   if (limitBytes <= 0) {
     return { 
       valueText: "无限", 
       unit: undefined, 
       detailText: undefined, 
       percent: 100, 
-      isInfinite: true 
+      isInfinite: true,
+      yesterdayText,
+      yesterdayPercent: 0 
     };
   }
 
@@ -104,6 +109,7 @@ function getTrafficInfo(node: any) {
 
   const remainingBytes = Math.max(0, limitBytes - usedBytes);
   const percent = Math.round((remainingBytes / limitBytes) * 100);
+  const yesterdayPercent = Math.min(100, Math.round((yesterdayBytes / limitBytes) * 100));
 
   let remainingText = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
@@ -117,7 +123,9 @@ function getTrafficInfo(node: any) {
     unit: "%", 
     detailText: `还剩 ${remainingText}`, 
     percent: percent, 
-    isInfinite: false 
+    isInfinite: false,
+    yesterdayText,
+    yesterdayPercent
   };
 }
 
@@ -144,7 +152,7 @@ export const NodeCard = memo(function NodeCard({
     return (
       <div
         className="server-card animate-pulse"
-        style={{ minHeight: 438 }}
+        style={{ minHeight: 410 }}
         aria-busy
       />
     );
@@ -160,7 +168,6 @@ export const NodeCard = memo(function NodeCard({
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
 
-  // 获取格式化后的流量数据
   const trafficInfo = getTrafficInfo(node);
 
   const subtitle =
@@ -182,8 +189,6 @@ export const NodeCard = memo(function NodeCard({
   const isOffline = node.online === false;
   const offlineFor = isOffline ? formatOfflineDuration(node.updatedAt) : null;
 
-  // 核心逻辑修改：动态决定流量进度条颜色
-  // 如果是无限流量，固定为绿色；有限流量下，百分比 <= 20% 呈现橙色，其余呈现绿色
   const trafficBarColor = trafficInfo.isInfinite
     ? "var(--status-success, #22c55e)"
     : trafficInfo.percent <= 20
@@ -258,7 +263,7 @@ export const NodeCard = memo(function NodeCard({
         </header>
 
         <div className="server-card-stack">
-          {/* 系统指标 */}
+          {/* 系统指标 Grid */}
           <div className="card-metric-section server-metric-grid">
             <MetricBar
               icon={<Cpu size={13} strokeWidth={2} />}
@@ -304,13 +309,11 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 实时网络速率 */}
+          {/* 实时网速速率区（仅包含方向速度与点阵趋势图，剔除了底部的累计数值） */}
           <div className="card-metric-section server-traffic-section">
             <TrafficStat
               direction="上行"
-              totalLabel="出站"
               rate={upRate}
-              total={formatBytes(node.trafficUp)}
               samples={trafficTrend.up}
               live={isOnline}
               redrawKey={resolvedAppearance}
@@ -319,9 +322,7 @@ export const NodeCard = memo(function NodeCard({
             />
             <TrafficStat
               direction="下行"
-              totalLabel="入站"
               rate={downRate}
-              total={formatBytes(node.trafficDown)}
               samples={trafficTrend.down}
               live={isOnline}
               redrawKey={resolvedAppearance}
@@ -430,37 +431,73 @@ export const NodeCard = memo(function NodeCard({
         {/* 页脚布局 */}
         <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           
-          {/* 上层：剩余流量独占一整行，集成进度条，完美控制变色 */}
+          {/* 双列流量模块栅格 */}
           <div 
-            className="server-traffic-bar-wrapper" 
+            className="server-traffic-module-grid" 
             style={{ 
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))", 
+              gap: "16px",
               width: "100%",
-              paddingTop: "4px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px"
+              paddingTop: "4px"
             }}
           >
-            <MetricBar
-              icon={<Globe size={13} strokeWidth={2} />}
-              label="剩余流量"
-              valueText={trafficInfo.valueText}
-              unit={trafficInfo.unit}
-              detailText={trafficInfo.detailText}
-              fraction={trafficInfo.isInfinite ? 1 : trafficInfo.percent / 100}
-              redrawKey={resolvedAppearance}
-              paint={{ kind: "solid", color: trafficBarColor }}
-            />
+            {/* 左边：剩余流量模块（数值居下） */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <Globe size={13} strokeWidth={2} />
+                <span style={{ fontSize: "12px", fontWeight: 500 }}>剩余流量</span>
+              </div>
+              <MetricBar
+                fraction={trafficInfo.isInfinite ? 1 : trafficInfo.percent / 100}
+                redrawKey={resolvedAppearance}
+                paint={{ kind: "solid", color: trafficBarColor }}
+                label="" 
+                valueText=""
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px", marginTop: "1px" }}>
+                <span style={{ color: trafficBarColor, fontWeight: "600", fontSize: "13px" }}>
+                  {trafficInfo.valueText}
+                  {trafficInfo.unit && <span style={{ fontSize: "10px", marginLeft: "1px", fontWeight: "400" }}>{trafficInfo.unit}</span>}
+                </span>
+                {trafficInfo.detailText && (
+                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>{trafficInfo.detailText}</span>
+                )}
+              </div>
+            </div>
+
+            {/* 右边：昨日已用流量模块 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+                <History size={13} strokeWidth={2} />
+                <span style={{ fontSize: "12px", fontWeight: 500 }}>昨日已用</span>
+              </div>
+              <MetricBar
+                fraction={trafficInfo.isInfinite ? 0 : trafficInfo.yesterdayPercent / 100}
+                redrawKey={resolvedAppearance}
+                paint={{ kind: "solid", color: "var(--text-secondary, #71717a)" }}
+                label=""
+                valueText=""
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px", marginTop: "1px" }}>
+                <span style={{ color: "var(--text-main)", fontWeight: "500" }}>
+                  {trafficInfo.yesterdayText}
+                </span>
+                {!trafficInfo.isInfinite && (
+                  <span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>占 {trafficInfo.yesterdayPercent}%</span>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* 下层：到期和在线并排分列，由虚线与上方的流量独立开 */}
+          {/* 下层：到期和在线并排 */}
           <div 
             className="server-card-meta-grid" 
             style={{ 
               display: "grid",
               gridTemplateColumns: "repeat(2, minmax(0, 1fr))", 
               width: "100%",
-              paddingTop: "8px",
+              paddingTop: "10px",
               borderTop: "1px dashed color-mix(in srgb, var(--text-tertiary) 15%, transparent)"
             }}
           >
@@ -480,7 +517,7 @@ export const NodeCard = memo(function NodeCard({
             />
           </div>
 
-          {/* 标签 chip */}
+          {/* 标签 chips */}
           {footerTags.length > 0 && (
             <div className="dstatus-tags-row" style={{ marginTop: "2px" }}>
               {footerTags.slice(0, 6).map((tag, i) => (
@@ -510,9 +547,7 @@ export const NodeCard = memo(function NodeCard({
 
 function TrafficStat({
   direction,
-  totalLabel,
   rate,
-  total,
   samples,
   live,
   redrawKey,
@@ -520,9 +555,7 @@ function TrafficStat({
   icon,
 }: {
   direction: "下行" | "上行";
-  totalLabel: "入站" | "出站";
   rate: TrafficRateDisplay;
-  total: string;
   samples: TrafficTrendSample[];
   live: boolean;
   redrawKey: string;
@@ -553,13 +586,6 @@ function TrafficStat({
           <span>{live ? (rate.bitsPerSec > 0 ? "实时" : "空闲") : "离线"}</span>
         </span>
       </div>
-      <div className="traffic-stat-foot">
-        <div className="traffic-stat-total-label">
-          <GlobeArrow direction={totalLabel} color={color} />
-          <span>{totalLabel}</span>
-        </div>
-        <span className="tabular">{total}</span>
-      </div>
     </div>
   );
 }
@@ -584,12 +610,9 @@ function TrafficDotStrip({
         const slotWidth = width / samples.length;
         const styles = getComputedStyle(document.documentElement);
         
-        // 核心修复：在这里解析出真正的 hex/rgb 颜色值字符串，规避高级原生 CSS 语义在 Canvas 内失效的问题
         const baseColor = resolveCssColor(color, styles);
         const inactiveColor = resolveCssColor("var(--progress-bg)", styles);
 
-        // 如果变量是 hex (如 #22c55e)，我们需要一个简单的 rgba 包装器用于 Canvas alpha
-        // 这里采用最稳定的 ctx.globalAlpha 控制透明度方案，代替在字符串中写 color-mix
         samples.forEach((sample, index) => {
           const hasTraffic = sample.value > 0;
           const slotX = index * slotWidth + slotWidth / 2;
@@ -601,7 +624,6 @@ function TrafficDotStrip({
           
           if (hasTraffic) {
             ctx.fillStyle = baseColor;
-            // 叠加 level 和 基础不透明度
             ctx.globalAlpha = Math.min(1, (sample.opacity || 0.5) + sample.level * 0.3);
           } else {
             ctx.fillStyle = inactiveColor;
@@ -617,42 +639,7 @@ function TrafficDotStrip({
   );
 }
 
-function GlobeArrow({
-  direction,
-  color,
-}: {
-  direction: "入站" | "出站";
-  color: string;
-}) {
-  const isInbound = direction === "入站";
-  return (
-    <span
-      className="relative inline-flex items-center justify-center"
-      style={{
-        width: 18,
-        height: 18,
-        color,
-      }}
-      aria-hidden
-    >
-      <Globe size={15} strokeWidth={1.9} />
-      {isInbound ? (
-        <ArrowDown
-          size={9}
-          strokeWidth={2.4}
-          className="absolute -right-[2px] bottom-[-1px]"
-        />
-      ) : (
-        <ArrowUp
-          size={9}
-          strokeWidth={2.4}
-          className="absolute -right-[2px] bottom-[-1px]"
-        />
-      )}
-    </span>
-  );
-}
-
+// 底部单项小组件
 function FooterStat({
   icon,
   label,
