@@ -79,13 +79,20 @@ function formatLossBucketSummary(bucket: PingOverviewBucket | null) {
 }
 
 /**
- * 配合原生数据结构优化的流量计算函数
+ * 严格按照图片模式优化的流量数据解析函数
  */
 function getTrafficInfo(node: any) {
   const limitBytes = Number(node.traffic_limit || 0);
   
+  // 无限流量模式
   if (limitBytes <= 0) {
-    return { text: "无限", percent: 100, isInfinite: true, hasConfig: true };
+    return { 
+      valueText: "无限", 
+      unit: undefined, 
+      detailText: undefined, // 图片中无限流量上方没有“还剩xxx”的文本
+      percent: 100, 
+      isInfinite: true 
+    };
   }
 
   let usedBytes = 0;
@@ -98,14 +105,21 @@ function getTrafficInfo(node: any) {
   const remainingBytes = Math.max(0, limitBytes - usedBytes);
   const percent = Math.round((remainingBytes / limitBytes) * 100);
 
-  let text = "";
+  let remainingText = "";
   if (remainingBytes >= 1024 * 1024 * 1024 * 1024) {
-    text = `${(remainingBytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
+    remainingText = `${(remainingBytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
   } else {
-    text = `${(remainingBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    remainingText = `${(remainingBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
-  return { text, percent, isInfinite: false, hasConfig: true };
+  // 有限流量模式：大字显示百分比数字，单位显示 %，辅助详情显示“还剩 x.x GB”
+  return { 
+    valueText: String(percent), 
+    unit: "%", 
+    detailText: `还剩 ${remainingText}`, 
+    percent: percent, 
+    isInfinite: false 
+  };
 }
 
 export const NodeCard = memo(function NodeCard({
@@ -147,7 +161,7 @@ export const NodeCard = memo(function NodeCard({
   const expire = formatExpireDays(node.expired_at);
   const uptime = formatUptimeDays(node.uptime);
 
-  // 直接调用原生高级字段解析流量
+  // 获取格式化后的流量数据
   const trafficInfo = getTrafficInfo(node);
 
   const subtitle =
@@ -413,7 +427,7 @@ export const NodeCard = memo(function NodeCard({
         {/* 页脚布局 */}
         <div className="server-card-footer" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           
-          {/* 上层：剩余流量独占一整行，集成 MetricBar 进度条 */}
+          {/* 上层：剩余流量独占一整行，集成 MetricBar 进度条并完全匹配图片展示机制 */}
           <div 
             className="server-traffic-bar-wrapper" 
             style={{ 
@@ -427,9 +441,10 @@ export const NodeCard = memo(function NodeCard({
             <MetricBar
               icon={<Globe size={13} strokeWidth={2} />}
               label="剩余流量"
-              valueText={trafficInfo.text}
-              unit={!trafficInfo.isInfinite ? `(${trafficInfo.percent}%)` : undefined}
-              fraction={trafficInfo.percent / 100}
+              valueText={trafficInfo.valueText}
+              unit={trafficInfo.unit}
+              detailText={trafficInfo.detailText}
+              fraction={trafficInfo.isInfinite ? 1 : trafficInfo.percent / 100}
               redrawKey={resolvedAppearance}
               paint={{ kind: "solid", color: trafficBarColor }}
             />
