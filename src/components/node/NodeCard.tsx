@@ -1,19 +1,3 @@
-这里是调整后的代码。
-
-### 修改思路说明
-
-1. **重构页脚布局**：将“剩余流量（含进度条）”作为一个独立区块，放置在第一栏（“到期”和“在线”状态）的**正上方**。
-2. **引入进度条组件**：直接复用你项目中已有的 `<MetricBar />` 组件来渲染流量进度条，保持 UI 风格与上方的 CPU、内存、磁盘等指标完全一致。
-3. **自适应色彩控制**：
-* 当流量无限时，进度条满格并呈现绿色 (`--status-success`)。
-* 当剩余流量充足（>20%）时，呈现正常的资源色 (`--progress-disk` 或自定义色)。
-* 当流量紧张（≤20%）时，自动切为警告色 (`--status-offline`)。
-
-
-
-### 调整后的完整代码
-
-```tsx
 import { memo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -504,7 +488,3 @@ export const NodeCard = memo(function NodeCard({
     </article>
   );
 });
-
-// TrafficStat, TrafficDotStrip, GlobeArrow, FooterStat 组件保持不变...
-
-```
